@@ -2,8 +2,13 @@
 
 An unofficial [MCP](https://modelcontextprotocol.io/) server that exposes one
 or more [Gramps Web API](https://github.com/gramps-project/gramps-web-api)
-trees to LLM assistants (Claude, etc.), so you can ask an agent things like
-*"who were So-and-so's grandparents?"* against your own genealogy data.
+trees to LLM assistants (Claude, etc.), against your own genealogy data.
+
+Since several assistants (e.g. Claude, Antigravity) support voice input, this
+works particularly well hands-free and conversationally: you can ask an
+open-ended research question — *"give me a breakdown of the social classes of
+the people in this tree"* — or edit the tree live by voice, the same way you'd
+dictate a change to an assistant in any other MCP-backed app.
 
 It works by pointing [FastMCP](https://gofastmcp.com/)'s
 `FastMCP.from_openapi()` at your Gramps Web API instance's `openapi.json` and
