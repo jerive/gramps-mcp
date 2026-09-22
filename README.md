@@ -37,18 +37,6 @@ and its follow-ups
 every operation now has a unique `operationId` and a specific summary, and
 mutation endpoints document their request body.
 
-## Install
-
-```sh
-pip install gramps-mcp
-```
-
-or with `uv`:
-
-```sh
-uv add gramps-mcp
-```
-
 ## Configure
 
 Copy `.env.example` to `.env` and fill in, at minimum:
