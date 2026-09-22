@@ -59,8 +59,16 @@ config endpoints are excluded from the generated tool set — see
 
 ## Docker Compose example
 
-`docker-compose.yml` (built from the included `Dockerfile`) runs the server
-alongside a Redis instance:
+This assumes you already have a Gramps Web API instance running (e.g. from
+its own
+[docker-compose.yml](https://github.com/gramps-project/gramps-web-api)).
+`docker-compose.yml` here is meant as an addition to that base stack, not a
+replacement for it — it only adds the `gramps-mcp` and `redis` services shown
+below, joined to the same Docker network as the existing `grampsweb`
+service(s) so `GRAMPS_BACKEND_URL` can reach it. If that base stack already
+runs its own Redis (Gramps Web API uses one for Celery and rate-limiting),
+you can point `MCP_CLIENT_STORAGE_URL` at it on an unused DB index instead of
+adding a second `redis` service.
 
 ```yaml
 services:
