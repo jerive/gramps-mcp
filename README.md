@@ -78,6 +78,54 @@ gramps-mcp
 This starts an HTTP-transport MCP server on `MCP_HOST`:`MCP_PORT` (default
 `0.0.0.0:8000`). Point your MCP client at `http://<host>:<port>/mcp`.
 
+## Docker Compose example
+
+`docker-compose.yml` (built from the included `Dockerfile`) runs the server
+alongside a Redis instance:
+
+```yaml
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+  gramps-mcp:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      GRAMPS_BACKEND_URL: "${GRAMPS_BACKEND_URL}"
+      GRAMPS_MCP_TREES: "${GRAMPS_MCP_TREES}"
+      GRAMPS_MCP_TREE_MYTREE_USERNAME: "${GRAMPS_MCP_TREE_MYTREE_USERNAME}"
+      GRAMPS_MCP_TREE_MYTREE_PASSWORD: "${GRAMPS_MCP_TREE_MYTREE_PASSWORD}"
+      GRAMPS_MCP_ADMIN_EMAILS: "${GRAMPS_MCP_ADMIN_EMAILS:-}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      MCP_BASE_URL: "${MCP_BASE_URL:-https://mcp.example.com}"
+      MCP_GOOGLE_REDIRECT_PATH: "${MCP_GOOGLE_REDIRECT_PATH:-/auth/callback}"
+      # Redis backs the OAuth client store, so registered MCP clients and
+      # their tokens survive a container restart instead of forcing every
+      # client to re-authorize.
+      MCP_CLIENT_STORAGE_URL: "redis://redis:6379/0"
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8000"
+    depends_on:
+      - redis
+
+volumes:
+  redis_data:
+```
+
+Run it with `docker compose up -d` after populating a `.env` (see
+[Configure](#configure)) with at least `GRAMPS_BACKEND_URL`,
+`GRAMPS_MCP_TREES`, and the matching `GRAMPS_MCP_TREE_<NAME>_USERNAME`/`_PASSWORD`
+pair(s). Google OAuth (and therefore Redis) is only exercised once
+`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are set; without them the server
+still runs, unauthenticated, for local/single-user use.
+
 ## GQL resource
 
 The server also publishes a `gramps://gql-spec` MCP resource with the
