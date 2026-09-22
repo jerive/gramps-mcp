@@ -57,15 +57,6 @@ By default, `/api/filters/`, `/api/token/`, `/api/users/`, `/api/facts/`, and
 config endpoints are excluded from the generated tool set — see
 `EXCLUDED_ROUTE_PREFIXES` in `src/gramps_mcp/trees.py`.
 
-## Run
-
-```sh
-gramps-mcp
-```
-
-This starts an HTTP-transport MCP server on `MCP_HOST`:`MCP_PORT` (default
-`0.0.0.0:8000`). Point your MCP client at `http://<host>:<port>/mcp`.
-
 ## Docker Compose example
 
 `docker-compose.yml` (built from the included `Dockerfile`) runs the server
@@ -112,7 +103,8 @@ Run it with `docker compose up -d` after populating a `.env` (see
 `GRAMPS_MCP_TREES`, and the matching `GRAMPS_MCP_TREE_<NAME>_USERNAME`/`_PASSWORD`
 pair(s). Google OAuth (and therefore Redis) is only exercised once
 `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are set; without them the server
-still runs, unauthenticated, for local/single-user use.
+still runs, unauthenticated, for local/single-user use. Point your MCP client
+at `http://<host>:8000/mcp`.
 
 ## GQL resource
 
