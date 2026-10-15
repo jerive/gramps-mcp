@@ -319,6 +319,24 @@ def require_tree_member(project: str, get_bearer_token: Callable[[], str]) -> Au
     return _check
 
 
+_SHARED_GOOGLE_HTTP_CLIENT: httpx2.AsyncClient | None = None
+
+
+def get_shared_google_http_client() -> httpx2.AsyncClient:
+    """Reuses one pooled client instead of opening a new connection per request."""
+    global _SHARED_GOOGLE_HTTP_CLIENT
+    if _SHARED_GOOGLE_HTTP_CLIENT is None or _SHARED_GOOGLE_HTTP_CLIENT.is_closed:
+        _SHARED_GOOGLE_HTTP_CLIENT = httpx2.AsyncClient(
+            timeout=15.0,
+            limits=httpx2.Limits(
+                max_keepalive_connections=20,
+                max_connections=50,
+                keepalive_expiry=60.0,
+            ),
+        )
+    return _SHARED_GOOGLE_HTTP_CLIENT
+
+
 def build_google_auth_provider() -> GoogleProvider | None:
     """Build a Google OAuth provider from env vars, or None to disable auth.
 
@@ -348,6 +366,10 @@ def build_google_auth_provider() -> GoogleProvider | None:
             f"Failed to initialize Redis-backed OAuth client storage at {client_storage_url}: {exc}"
         ) from exc
 
+    # Avoids a Google tokeninfo/userinfo round-trip on every single MCP
+    # request; see GRAMPS_MCP_GOOGLE_TOKEN_CACHE_TTL below.
+    token_cache_ttl = int(os.getenv("GRAMPS_MCP_GOOGLE_TOKEN_CACHE_TTL", "300"))
+
     return GoogleProvider(
         client_id=client_id,
         client_secret=client_secret,
@@ -355,6 +377,11 @@ def build_google_auth_provider() -> GoogleProvider | None:
         redirect_path=redirect_path,
         required_scopes=required_scopes,
         client_storage=client_storage,
+        http_client=get_shared_google_http_client(),
+        token_expiry_threshold_seconds=60,
+        fastmcp_access_token_expiry_seconds=3600,
+        fallback_refresh_token_expiry_seconds=31536000,
+        cache_ttl_seconds=token_cache_ttl,
     )
 
 

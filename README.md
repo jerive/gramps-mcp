@@ -51,7 +51,10 @@ Everything else in `.env.example` is optional. In particular, `GOOGLE_CLIENT_ID`
 `GOOGLE_CLIENT_SECRET` gate the server behind Google sign-in and a Redis-backed
 per-tree membership check (`GRAMPS_MCP_ADMIN_EMAILS` plus each tree's own
 Gramps Web user list) — leave them unset only for a server you run purely on
-`localhost` for yourself.
+`localhost` for yourself. When Google sign-in is enabled, verified tokens are
+cached in-memory for `GRAMPS_MCP_GOOGLE_TOKEN_CACHE_TTL` seconds (default
+300) to avoid a Google tokeninfo/userinfo round-trip on every MCP request;
+set it to `0` to disable caching.
 
 By default, `/api/filters/`, `/api/token/`, `/api/users/`, `/api/facts/`, and
 config endpoints are excluded from the generated tool set — see
@@ -97,6 +100,7 @@ services:
       # their tokens survive a container restart instead of forcing every
       # client to re-authorize.
       MCP_CLIENT_STORAGE_URL: "redis://redis:6379/0"
+      GRAMPS_MCP_GOOGLE_TOKEN_CACHE_TTL: "${GRAMPS_MCP_GOOGLE_TOKEN_CACHE_TTL:-300}"
       MCP_HOST: "0.0.0.0"
       MCP_PORT: "8000"
     depends_on:
