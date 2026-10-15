@@ -1,0 +1,57 @@
+site_name: gramps-mcp
+site_description: An unofficial MCP server for Gramps Web API trees.
+site_url: https://jerive.github.io/gramps-mcp/
+repo_url: https://github.com/jerive/gramps-mcp
+repo_name: jerive/gramps-mcp
+edit_uri: edit/master/docs/
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - content.action.edit
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Tutorial: tutorial.md
+  - How-to guides:
+      - Create a Gramps Web service account: how-to/service-account.md
+      - Enable Google sign-in: how-to/google-oauth.md
+      - Deploy with Docker Compose: how-to/docker-compose.md
+      - Run without Docker: how-to/run-without-docker.md
+      - Connect an MCP client: how-to/connect-client.md
+  - Reference:
+      - Configuration: reference/configuration.md
+      - Tools and resources: reference/tools.md
+  - Explanation:
+      - How it works: explanation/how-it-works.md
+      - Security and risk model: explanation/security-model.md
