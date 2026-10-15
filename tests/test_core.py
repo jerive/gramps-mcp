@@ -42,7 +42,9 @@ def test_gramps_client_refreshes_auth_header(monkeypatch):
 
 
 def test_admin_emails_parsed_from_env(monkeypatch):
-    monkeypatch.setenv("GRAMPS_MCP_ADMIN_EMAILS", " Alice@Example.com, bob@example.com ")
+    monkeypatch.setenv(
+        "GRAMPS_MCP_ADMIN_EMAILS", " Alice@Example.com, bob@example.com "
+    )
     import importlib
 
     reloaded = importlib.reload(core)

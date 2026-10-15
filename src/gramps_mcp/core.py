@@ -25,9 +25,9 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-GRAMPS_BACKEND_URL = os.environ.get("GRAMPS_BACKEND_URL", "http://localhost:5000").rstrip(
-    "/"
-)
+GRAMPS_BACKEND_URL = os.environ.get(
+    "GRAMPS_BACKEND_URL", "http://localhost:5000"
+).rstrip("/")
 GRAMPS_LOGIN_LOCK = threading.Lock()
 GRAMPS_LOGIN_LAST_ATTEMPT_TS = 0.0
 
@@ -41,7 +41,8 @@ ADMIN_EMAILS = frozenset(
 logger = logging.getLogger("gramps_mcp")
 logger.setLevel(os.getenv("GRAMPS_MCP_LOG_LEVEL", "INFO").upper())
 if not logger.handlers:
-    # fastmcp only attaches handlers to its own loggers, so ours needs one to reach stdout.
+    # fastmcp only attaches handlers to its own loggers, so ours needs one to
+    # reach stdout.
     _handler = logging.StreamHandler(sys.stdout)
     _handler.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -216,7 +217,8 @@ def _post_login(username: str, password: str) -> tuple[str, str]:
 
     if payload.status_code in {401, 403}:
         raise GrampsCredentialsError(
-            f"Gramps rejected credentials for {username} (status {payload.status_code}): {payload.text}"
+            f"Gramps rejected credentials for {username} "
+            f"(status {payload.status_code}): {payload.text}"
         )
 
     if payload.status_code >= 400:
@@ -265,7 +267,8 @@ def fetch_gramps_user_emails(access_token: str) -> set[str]:
     )
     if response.status_code >= 400:
         raise RuntimeError(
-            f"GET /api/users/ failed with status {response.status_code}: {response.content!r}"
+            f"GET /api/users/ failed with status {response.status_code}: "
+            f"{response.content!r}"
         )
 
     emails: set[str] = set()
@@ -279,7 +282,7 @@ def fetch_gramps_user_emails(access_token: str) -> set[str]:
 def get_tree_member_emails(
     project: str, get_bearer_token: Callable[[], str]
 ) -> set[str]:
-    """Email addresses of Gramps users registered on this specific tree, cached briefly."""
+    """Email addresses of Gramps users on this tree, cached briefly."""
     with _TREE_EMAILS_CACHE_LOCK:
         cached = _TREE_EMAILS_CACHE.get(project)
         if cached and time.time() - cached[0] < _TREE_EMAILS_TTL_SECONDS:
@@ -319,6 +322,24 @@ def require_tree_member(project: str, get_bearer_token: Callable[[], str]) -> Au
     return _check
 
 
+_SHARED_GOOGLE_HTTP_CLIENT: httpx2.AsyncClient | None = None
+
+
+def get_shared_google_http_client() -> httpx2.AsyncClient:
+    """Reuses one pooled client instead of opening a new connection per request."""
+    global _SHARED_GOOGLE_HTTP_CLIENT
+    if _SHARED_GOOGLE_HTTP_CLIENT is None or _SHARED_GOOGLE_HTTP_CLIENT.is_closed:
+        _SHARED_GOOGLE_HTTP_CLIENT = httpx2.AsyncClient(
+            timeout=15.0,
+            limits=httpx2.Limits(
+                max_keepalive_connections=20,
+                max_connections=50,
+                keepalive_expiry=60.0,
+            ),
+        )
+    return _SHARED_GOOGLE_HTTP_CLIENT
+
+
 def build_google_auth_provider() -> GoogleProvider | None:
     """Build a Google OAuth provider from env vars, or None to disable auth.
 
@@ -345,8 +366,13 @@ def build_google_auth_provider() -> GoogleProvider | None:
         client_storage = RedisStore(url=client_storage_url)
     except Exception as exc:  # pragma: no cover - surfaced through clear startup error
         raise RuntimeError(
-            f"Failed to initialize Redis-backed OAuth client storage at {client_storage_url}: {exc}"
+            "Failed to initialize Redis-backed OAuth client storage at "
+            f"{client_storage_url}: {exc}"
         ) from exc
+
+    # Avoids a Google tokeninfo/userinfo round-trip on every single MCP
+    # request; see GRAMPS_MCP_GOOGLE_TOKEN_CACHE_TTL below.
+    token_cache_ttl = int(os.getenv("GRAMPS_MCP_GOOGLE_TOKEN_CACHE_TTL", "300"))
 
     return GoogleProvider(
         client_id=client_id,
@@ -355,6 +381,11 @@ def build_google_auth_provider() -> GoogleProvider | None:
         redirect_path=redirect_path,
         required_scopes=required_scopes,
         client_storage=client_storage,
+        http_client=get_shared_google_http_client(),
+        token_expiry_threshold_seconds=60,
+        fastmcp_access_token_expiry_seconds=3600,
+        fallback_refresh_token_expiry_seconds=31536000,
+        cache_ttl_seconds=token_cache_ttl,
     )
 
 

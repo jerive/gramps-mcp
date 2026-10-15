@@ -6,7 +6,8 @@ readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.12"
 dependencies = [
-    "fastmcp[apps]>=4.0.2",
+    # >=4.1.0 for GoogleProvider's native cache_ttl_seconds/max_cache_size.
+    "fastmcp[apps]>=4.1.0",
     # FastMCP.from_openapi() takes an httpx2.AsyncClient (pydantic/httpx2), not httpx.
     "httpx2>=2.9.1",
     "tenacity>=9.1.4",
@@ -29,7 +30,7 @@ build-backend = "hatchling.build"
 packages = ["src/gramps_mcp"]
 
 [dependency-groups]
-dev = ["pytest>=8.0.0", "pytest-asyncio>=0.24.0"]
+dev = ["pytest>=8.0.0", "pytest-asyncio>=0.24.0", "ruff>=0.17.0"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

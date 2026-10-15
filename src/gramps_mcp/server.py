@@ -18,8 +18,10 @@ GQL_SPEC_DESCRIPTION = (
 
 
 def _read_gql_docs() -> str:
-    return resources.files("gramps_mcp").joinpath("gql_docs.md").read_text(
-        encoding="utf-8"
+    return (
+        resources.files("gramps_mcp")
+        .joinpath("gql_docs.md")
+        .read_text(encoding="utf-8")
     )
 
 
