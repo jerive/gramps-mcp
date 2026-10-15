@@ -29,6 +29,12 @@ theme:
         icon: material/weather-sunny
         name: Switch to light mode
 
+extra_css:
+  - assets/asciinema/asciinema-player.css
+
+extra_javascript:
+  - assets/asciinema/asciinema-player.min.js
+
 markdown_extensions:
   - admonition
   - attr_list
