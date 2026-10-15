@@ -63,7 +63,7 @@ jobs:
       - name: Create an Editor user for the MCP server
         run: |
           /tmp/gramps-venv/bin/python -m gramps_webapi tree list | tee /tmp/tree-list.txt
-          TREE_ID=$(grep -oEi '[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}' /tmp/tree-list.txt | head -n1)
+          TREE_ID=$(awk -v name="$GRAMPSWEB_TREE" '$2 == name { print $1 }' /tmp/tree-list.txt)
           test -n "$TREE_ID"
           /tmp/gramps-venv/bin/python -m gramps_webapi user add editor editorpass123 --role 3 --tree "$TREE_ID"
 

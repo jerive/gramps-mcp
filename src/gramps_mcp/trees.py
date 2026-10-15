@@ -96,20 +96,25 @@ def mount_tree(project: str, openapi_spec: dict[str, Any], mcp: FastMCP) -> None
     # Google sign-in; otherwise every request has no token (ctx.token is
     # None), require_tree_member would deny it, and *no* tool would ever be
     # usable in the documented unauthenticated/local/single-user mode.
-    mcp_component_fn = None
-    if mcp.auth is not None:
-        tree_check = require_tree_member(project, get_bearer_token)
+    tree_check = (
+        require_tree_member(project, get_bearer_token) if mcp.auth is not None else None
+    )
 
-        def customize_component(_route: HTTPRoute, component: Any) -> None:
+    def customize_component(_route: HTTPRoute, component: Any) -> None:
+        if tree_check is not None:
             component.auth = tree_check
-
-        mcp_component_fn = customize_component
+        # Gramps' declared response schemas are stricter than what the API
+        # really returns (e.g. extra Person fields), and MCP clients validate
+        # structured results against outputSchema, so calls would fail.
+        # Without a schema the data is still returned as structured content.
+        if hasattr(component, "output_schema"):
+            component.output_schema = None
 
     child = FastMCP.from_openapi(
         openapi_spec=openapi_spec,
         client=client,
         name=f"Tree {project}",
         route_map_fn=route_mapper,
-        mcp_component_fn=mcp_component_fn,
+        mcp_component_fn=customize_component,
     )
     mcp.mount(child, namespace=f"tree-{project.lower()}")

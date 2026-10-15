@@ -77,8 +77,9 @@ permissions. Find the ID of the tree you just imported:
 ~/gramps-venv/bin/python -m gramps_webapi tree list
 ```
 
-The output contains a UUID such as `3f1c6a52-0c1e-4d0a-9d55-1c2b7c6d8e90`.
-Create an Editor (role `3`) in that tree, replacing `<tree-id>` with it:
+The output is a small table; copy the value in the `Tree ID` column of the
+`example` row (a short hex string such as `6ad0a9ff`). Create an Editor
+(role `3`) in that tree, replacing `<tree-id>` with it:
 
 ```sh
 ~/gramps-venv/bin/python -m gramps_webapi user add editor editorpass123 --role 3 --tree <tree-id>
