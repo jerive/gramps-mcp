@@ -121,13 +121,14 @@ export GRAMPS_BACKEND_URL=http://127.0.0.1:5555
 export GRAMPS_MCP_TREES=example
 export GRAMPS_MCP_TREE_EXAMPLE_USERNAME=editor
 export GRAMPS_MCP_TREE_EXAMPLE_PASSWORD=editorpass123
+export MCP_HOST=127.0.0.1
 ~/mcp-venv/bin/gramps-mcp
 ```
 
 When the log shows the server listening on port 8000, leave it running. The
 MCP endpoint is `http://127.0.0.1:8000/mcp`. (Since Google sign-in isn't
-configured, anyone who can reach that port can use it. That's fine on
-`localhost` for a tutorial and nowhere else.)
+configured, anyone who can reach that port can use the tree, which is why
+`MCP_HOST=127.0.0.1` restricts it to your machine. Keep it that way.)
 
 ## 8. Ask the tree for some people
 
