@@ -1,6 +1,6 @@
 [project]
 name = "gramps-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Unofficial MCP server exposing a Gramps Web API instance to LLM assistants"
 readme = "README.md"
 license = { text = "MIT" }
