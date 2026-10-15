@@ -64,10 +64,27 @@ do through this server:
   dictate changes to the tree through an agent. Combined with the warning in
   [Status and scope](#status-and-scope) above, treat this as "I'm OK with an
   LLM making real edits to this tree, backups permitting."
+- **Owner** — everything Editor can do, plus user management. Required only
+  if you enable Google sign-in and want the per-tree membership check (see
+  below).
 
-Avoid Owner/Admin for this account — this server has no use for user
-management or multi-tree administration, and a narrower role limits the
-damage from a bad agent-generated write. See Gramps Web's own
+**Google sign-in and membership checks.** When Google OAuth is enabled, the
+server decides who may use a tree by listing that tree's Gramps Web users
+(`GET /api/users/`) and matching the signed-in Google email against theirs.
+Gramps Web only allows that listing for **Owner** (or Admin), so with a
+Member/Editor account the listing fails and only the emails in
+`GRAMPS_MCP_ADMIN_EMAILS` can get in. You then have two options:
+
+- Use an **Owner** account for the tree. Registered Gramps users can sign in
+  with their own Google account, but the account this server runs as can now
+  also add/remove users and write to the tree, so it's a much bigger blast
+  radius if an agent misbehaves.
+- Keep Member/Editor and list everyone who should have access in
+  `GRAMPS_MCP_ADMIN_EMAILS`. Note that admin emails **bypass the membership
+  check for every mounted tree**, so this grants access to all of them.
+
+Without Google sign-in (local use), no user listing happens, and Member or
+Editor is enough. See Gramps Web's own
 [user roles documentation](https://www.grampsweb.org/install_setup/users/)
 for the full permission matrix.
 
@@ -185,12 +202,14 @@ export GRAMPS_BACKEND_URL=http://localhost:5000
 export GRAMPS_MCP_TREES=MyTree
 export GRAMPS_MCP_TREE_MYTREE_USERNAME=myuser
 export GRAMPS_MCP_TREE_MYTREE_PASSWORD=mypassword
+export MCP_HOST=127.0.0.1   # without auth, only listen on localhost
 gramps-mcp
 ```
 
 This starts the same server as the Docker image (`MCP_HOST`/`MCP_PORT` env
-vars apply here too, defaulting to `0.0.0.0:8000`) — just without a
-container around it. Add `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`/
+vars apply here too; they default to `0.0.0.0:8000`, which is why the example
+binds to `127.0.0.1` — an unauthenticated server must not listen on every
+interface) — just without a container around it. Add `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`/
 `MCP_CLIENT_STORAGE_URL` (pointing at a Redis you run separately) the same
 way as in the Docker Compose example if you need auth.
 
@@ -203,14 +222,16 @@ just give them `http://<host>:8000/mcp` (or your public HTTPS URL).
 
 For clients that only support local/stdio MCP servers, bridge through
 [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) in your client's MCP
-config instead:
+config instead. `mcp-remote` only accepts plain `http://` for `localhost`; for a
+server on another host use its public `https://` URL (or pass `--allow-http`
+at your own risk on a trusted network):
 
 ```json
 {
   "mcpServers": {
     "gramps": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "http://<host>:8000/mcp"]
+      "args": ["-y", "mcp-remote", "http://localhost:8000/mcp"]
     }
   }
 }
