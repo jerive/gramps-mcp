@@ -30,7 +30,7 @@ build-backend = "hatchling.build"
 packages = ["src/gramps_mcp"]
 
 [dependency-groups]
-dev = ["pytest>=8.0.0", "pytest-asyncio>=0.24.0"]
+dev = ["pytest>=8.0.0", "pytest-asyncio>=0.24.0", "ruff>=0.17.0"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

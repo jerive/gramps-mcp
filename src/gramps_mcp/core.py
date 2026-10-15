@@ -25,9 +25,9 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-GRAMPS_BACKEND_URL = os.environ.get("GRAMPS_BACKEND_URL", "http://localhost:5000").rstrip(
-    "/"
-)
+GRAMPS_BACKEND_URL = os.environ.get(
+    "GRAMPS_BACKEND_URL", "http://localhost:5000"
+).rstrip("/")
 GRAMPS_LOGIN_LOCK = threading.Lock()
 GRAMPS_LOGIN_LAST_ATTEMPT_TS = 0.0
 
@@ -41,7 +41,8 @@ ADMIN_EMAILS = frozenset(
 logger = logging.getLogger("gramps_mcp")
 logger.setLevel(os.getenv("GRAMPS_MCP_LOG_LEVEL", "INFO").upper())
 if not logger.handlers:
-    # fastmcp only attaches handlers to its own loggers, so ours needs one to reach stdout.
+    # fastmcp only attaches handlers to its own loggers, so ours needs one to
+    # reach stdout.
     _handler = logging.StreamHandler(sys.stdout)
     _handler.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -216,7 +217,8 @@ def _post_login(username: str, password: str) -> tuple[str, str]:
 
     if payload.status_code in {401, 403}:
         raise GrampsCredentialsError(
-            f"Gramps rejected credentials for {username} (status {payload.status_code}): {payload.text}"
+            f"Gramps rejected credentials for {username} "
+            f"(status {payload.status_code}): {payload.text}"
         )
 
     if payload.status_code >= 400:
@@ -265,7 +267,8 @@ def fetch_gramps_user_emails(access_token: str) -> set[str]:
     )
     if response.status_code >= 400:
         raise RuntimeError(
-            f"GET /api/users/ failed with status {response.status_code}: {response.content!r}"
+            f"GET /api/users/ failed with status {response.status_code}: "
+            f"{response.content!r}"
         )
 
     emails: set[str] = set()
@@ -279,7 +282,7 @@ def fetch_gramps_user_emails(access_token: str) -> set[str]:
 def get_tree_member_emails(
     project: str, get_bearer_token: Callable[[], str]
 ) -> set[str]:
-    """Email addresses of Gramps users registered on this specific tree, cached briefly."""
+    """Email addresses of Gramps users on this tree, cached briefly."""
     with _TREE_EMAILS_CACHE_LOCK:
         cached = _TREE_EMAILS_CACHE.get(project)
         if cached and time.time() - cached[0] < _TREE_EMAILS_TTL_SECONDS:
@@ -363,7 +366,8 @@ def build_google_auth_provider() -> GoogleProvider | None:
         client_storage = RedisStore(url=client_storage_url)
     except Exception as exc:  # pragma: no cover - surfaced through clear startup error
         raise RuntimeError(
-            f"Failed to initialize Redis-backed OAuth client storage at {client_storage_url}: {exc}"
+            "Failed to initialize Redis-backed OAuth client storage at "
+            f"{client_storage_url}: {exc}"
         ) from exc
 
     # Avoids a Google tokeninfo/userinfo round-trip on every single MCP
