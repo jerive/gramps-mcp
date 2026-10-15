@@ -27,3 +27,72 @@ jobs:
 
       - name: Run tests
         run: uv run pytest -q
+
+  integration:
+    # Boots a throwaway Gramps Web API instance from Gramps' bundled example
+    # tree and runs the real MCP server against it. These are the same steps
+    # as docs/tutorial.md -- keep the two in sync.
+    runs-on: ubuntu-latest
+    env:
+      GRAMPSWEB_TREE: ci-tree
+      GRAMPSWEB_USER_DB_URI: sqlite:////tmp/users.sqlite
+      GRAMPSWEB_MEDIA_BASE_DIR: /tmp/media
+      GRAMPSWEB_SECRET_KEY: ci-only-not-a-secret-ci-only-not-a-secret
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system packages for Gramps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            python3-venv python3-dev python3-gi build-essential pkg-config \
+            gettext appstream libicu-dev libcairo2-dev libgirepository1.0-dev \
+            gir1.2-glib-2.0 gir1.2-gtk-3.0 gir1.2-pango-1.0
+
+      - name: Install Gramps and Gramps Web API
+        run: |
+          python3 -m venv --system-site-packages /tmp/gramps-venv
+          /tmp/gramps-venv/bin/pip install --quiet gramps gramps_webapi
+
+      - name: Import the example tree
+        run: |
+          mkdir -p /tmp/media
+          EXAMPLE=$(/tmp/gramps-venv/bin/python -c "import os; from gramps.gen.utils.resourcepath import ResourcePath; print(os.path.join(ResourcePath().doc_dir, 'example', 'gramps', 'example.gramps'))")
+          /tmp/gramps-venv/bin/gramps -C "$GRAMPSWEB_TREE" -i "$EXAMPLE"
+
+      - name: Create an Editor user for the MCP server
+        run: |
+          /tmp/gramps-venv/bin/python -m gramps_webapi tree list | tee /tmp/tree-list.txt
+          TREE_ID=$(awk -v name="$GRAMPSWEB_TREE" '$2 == name { print $1 }' /tmp/tree-list.txt)
+          test -n "$TREE_ID"
+          /tmp/gramps-venv/bin/python -m gramps_webapi user add editor editorpass123 --role 3 --tree "$TREE_ID"
+
+      - name: Start Gramps Web API
+        run: |
+          nohup /tmp/gramps-venv/bin/python -m gramps_webapi run --host 127.0.0.1 --port 5555 --use-wsgi > /tmp/gramps-web.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -sf http://127.0.0.1:5555/api/openapi.json > /dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/gramps-web.log
+          exit 1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run integration tests
+        env:
+          GRAMPS_BACKEND_URL: http://127.0.0.1:5555
+          GRAMPS_MCP_TREES: ci-tree
+          GRAMPS_MCP_TREE_CI_TREE_USERNAME: editor
+          GRAMPS_MCP_TREE_CI_TREE_PASSWORD: editorpass123
+        run: uv run pytest tests/test_integration.py -v
+
+      - name: Gramps Web API log
+        if: failure()
+        run: cat /tmp/gramps-web.log

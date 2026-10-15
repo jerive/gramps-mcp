@@ -92,10 +92,23 @@ def mount_tree(project: str, openapi_spec: dict[str, Any], mcp: FastMCP) -> None
     def get_bearer_token() -> str:
         return client.headers.get("Authorization", "").removeprefix("Bearer ").strip()
 
-    tree_check = require_tree_member(project, get_bearer_token)
+    # Only gate tools behind tree membership when the server itself requires
+    # Google sign-in; otherwise every request has no token (ctx.token is
+    # None), require_tree_member would deny it, and *no* tool would ever be
+    # usable in the documented unauthenticated/local/single-user mode.
+    tree_check = (
+        require_tree_member(project, get_bearer_token) if mcp.auth is not None else None
+    )
 
     def customize_component(_route: HTTPRoute, component: Any) -> None:
-        component.auth = tree_check
+        if tree_check is not None:
+            component.auth = tree_check
+        # Gramps' declared response schemas are stricter than what the API
+        # really returns (e.g. extra Person fields), and MCP clients validate
+        # structured results against outputSchema, so calls would fail.
+        # Without a schema the data is still returned as structured content.
+        if hasattr(component, "output_schema"):
+            component.output_schema = None
 
     child = FastMCP.from_openapi(
         openapi_spec=openapi_spec,
