@@ -8,8 +8,8 @@ tree.
 
 It follows one concrete path so that every step works the same way for
 everyone: a Debian/Ubuntu machine, no Docker, no Google sign-in. Once it
-works, the [README](../README.md) covers the other setups (an existing Gramps
-Web deployment, Docker Compose, Google OAuth).
+works, the [how-to guides](how-to/service-account.md) cover the other setups (an
+existing Gramps Web deployment, Docker Compose, Google OAuth).
 
 You will need:
 
@@ -164,11 +164,11 @@ You can stop the three processes with `Ctrl+C`.
 ## Where to go from here
 
 - To connect a real MCP client such as Claude instead of this script, see
-  [Connect an MCP client](../README.md#connect-an-mcp-client).
+  [Connect an MCP client](how-to/connect-client.md).
 - To point `gramps-mcp` at your own Gramps Web deployment, start with
-  [Create a Gramps Web service account](../README.md#create-a-gramps-web-service-account).
+  [Create a Gramps Web service account](how-to/service-account.md).
   Prefer **Member** over **Editor** if you don't want an agent to modify the
   tree.
 - To expose the server beyond `localhost`, set up
-  [Google OAuth](../README.md#setting-up-google-oauth) and see the
-  [Docker Compose example](../README.md#docker-compose-example).
+  [Google OAuth](how-to/google-oauth.md) and see the
+  [Docker Compose example](how-to/docker-compose.md).
