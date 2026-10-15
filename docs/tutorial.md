@@ -19,6 +19,25 @@ You will need:
 You'll use two terminals: one for Gramps Web API, one for `gramps-mcp`. Steps
 1 to 5 are in the first one.
 
+## Watch it first
+
+This is a real run of the tutorial on a fresh Ubuntu 24.04 container, about
+three minutes long. Press play, or skip to the steps below.
+
+<div id="tutorial-demo"></div>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    AsciinemaPlayer.create('../assets/tutorial.cast', document.getElementById('tutorial-demo'), {
+      idleTimeLimit: 2, fit: 'width', terminalFontSize: 'small', poster: 'npt:2:50'
+    });
+  });
+</script>
+
+The recording differs from the steps in three ways, to fit in one terminal and
+one short video: Gramps Web API and `gramps-mcp` are started in the background
+with `&` (with their logs redirected) instead of in their own terminals, the
+long installs are sped up, and the commands are typed by a script.
+
 ## 1. Install the system packages Gramps needs
 
 Gramps itself is a desktop application, so even its headless mode needs a few
