@@ -71,7 +71,7 @@ jobs:
         run: |
           nohup /tmp/gramps-venv/bin/python -m gramps_webapi run --host 127.0.0.1 --port 5555 --use-wsgi > /tmp/gramps-web.log 2>&1 &
           for _ in $(seq 1 60); do
-            curl -sf http://127.0.0.1:5555/api/metadata/ > /dev/null && exit 0
+            curl -sf http://127.0.0.1:5555/api/openapi.json > /dev/null && exit 0
             sleep 1
           done
           cat /tmp/gramps-web.log

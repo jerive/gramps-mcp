@@ -94,10 +94,11 @@ The output is a small table; copy the value in the `Tree ID` column of the
 Leave it running. In a **second terminal**, check it answers:
 
 ```sh
-curl -s http://127.0.0.1:5555/api/metadata/ | head -c 200
+curl -s http://127.0.0.1:5555/api/openapi.json | head -c 200
 ```
 
-You should see a JSON document starting with the server's version info.
+You should see the start of a JSON document: the API's OpenAPI description,
+which is what `gramps-mcp` reads to generate its tools.
 
 ## 6. Install gramps-mcp
 
