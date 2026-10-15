@@ -92,16 +92,24 @@ def mount_tree(project: str, openapi_spec: dict[str, Any], mcp: FastMCP) -> None
     def get_bearer_token() -> str:
         return client.headers.get("Authorization", "").removeprefix("Bearer ").strip()
 
-    tree_check = require_tree_member(project, get_bearer_token)
+    # Only gate tools behind tree membership when the server itself requires
+    # Google sign-in; otherwise every request has no token (ctx.token is
+    # None), require_tree_member would deny it, and *no* tool would ever be
+    # usable in the documented unauthenticated/local/single-user mode.
+    mcp_component_fn = None
+    if mcp.auth is not None:
+        tree_check = require_tree_member(project, get_bearer_token)
 
-    def customize_component(_route: HTTPRoute, component: Any) -> None:
-        component.auth = tree_check
+        def customize_component(_route: HTTPRoute, component: Any) -> None:
+            component.auth = tree_check
+
+        mcp_component_fn = customize_component
 
     child = FastMCP.from_openapi(
         openapi_spec=openapi_spec,
         client=client,
         name=f"Tree {project}",
         route_map_fn=route_mapper,
-        mcp_component_fn=customize_component,
+        mcp_component_fn=mcp_component_fn,
     )
     mcp.mount(child, namespace=f"tree-{project.lower()}")

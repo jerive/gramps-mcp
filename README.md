@@ -37,6 +37,9 @@ and its follow-ups
 every operation now has a unique `operationId` and a specific summary, and
 mutation endpoints document their request body.
 
+New here? The [tutorial](docs/tutorial.md) walks through running everything
+locally against Gramps' example tree, in about 15 minutes.
+
 ## Prerequisites
 
 - A running [Gramps Web API](https://github.com/gramps-project/gramps-web-api)
@@ -196,8 +199,8 @@ For a quick local test against a Gramps Web API instance you can already
 reach — no Redis, no OAuth, single user:
 
 ```sh
-# Pin to a release tag for reproducibility; drop @v0.2.0 to track master instead.
-pip install "gramps-mcp @ git+https://github.com/jerive/gramps-mcp@v0.2.0"
+# Pin to a release tag for reproducibility; drop @v0.2.1 to track master instead.
+pip install "gramps-mcp @ git+https://github.com/jerive/gramps-mcp@v0.2.1"
 export GRAMPS_BACKEND_URL=http://localhost:5000
 export GRAMPS_MCP_TREES=MyTree
 export GRAMPS_MCP_TREE_MYTREE_USERNAME=myuser
