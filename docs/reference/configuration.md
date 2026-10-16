@@ -45,6 +45,18 @@ authentication on. Leave them unset for an unauthenticated server.
 
 See [Enable Google sign-in](../how-to/google-oauth.md) for the procedure.
 
+## Confirmation of writes
+
+| Variable | Default | Description |
+|---|---|---|
+| `GRAMPS_MCP_CONFIRMATION` | `required` | `required`: a write needs the user's confirmation, and a client that cannot ask writes nothing. `when-supported`: the user is asked if the client can ask; a client that cannot ask has the changes applied directly. |
+
+`when-supported` is **less safe**: for a client that does not declare
+elicitation support, nothing but that client's own tool approval stands between
+the model and the tree. It does not help a client that declares the support but
+answers without showing anything to the user: that answer is a refusal in both
+modes. See [Tools and resources](tools.md#the-write-tool).
+
 ## Logging
 
 | Variable | Default | Description |

@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from copy import deepcopy
-from typing import Any
+from typing import Any, Literal
 
 import httpx2
 import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.client.elicitation import ElicitResult
+from mcp.types import Implementation
 from pydantic import TypeAdapter, ValidationError
 
 from gramps_mcp.changes import (
@@ -19,11 +20,15 @@ from gramps_mcp.changes import (
     CreateOperation,
     DeleteOperation,
     Operations,
+    Planned,
     UpdateOperation,
+    confirmation_mode,
+    describe,
     execute,
     format_confirmation,
     label_of,
     leaf_diff,
+    list_diff_lines,
     merge_changes,
     plan,
     register_apply_changes,
@@ -111,9 +116,11 @@ class FakeGramps:
         )
 
 
-def make_server(gramps: FakeGramps) -> FastMCP:
+def make_server(
+    gramps: FakeGramps, confirmation: Literal["required", "when-supported"] = "required"
+) -> FastMCP:
     server = FastMCP()
-    register_apply_changes(server, gramps.client())
+    register_apply_changes(server, gramps.client(), confirmation=confirmation)
     return server
 
 
@@ -540,3 +547,128 @@ async def test_tool_asks_claude_code_for_a_confirmation_every_time():
     async with Client(make_server(FakeGramps({}))) as client:
         (tool,) = await client.list_tools()
     assert tool.meta["anthropic/requiresUserInteraction"] is True
+
+
+def test_list_changes_are_shown_as_added_and_removed_items():
+    old = [{"ref": "kid1", "frel": "Birth"}, {"ref": "kid2"}]
+    new = [{"ref": "kid1", "frel": "Birth"}, {"ref": "kid3", "frel": "Birth"}]
+    assert list_diff_lines("child_ref_list", old, new) == [
+        "  child_ref_list: + kid3",
+        "  child_ref_list: - kid2",
+    ]
+    assert list_diff_lines("tag_list", ["a", "b"], ["b", "a"]) == [
+        "  tag_list: reordered"
+    ]
+    planned = Planned(
+        "update",
+        "families",
+        "f",
+        "PUT",
+        "/api/families/f",
+        {"handle": "f", "child_ref_list": new},
+    )
+    lines = describe(planned, {"handle": "f", "child_ref_list": old})
+    assert lines[1:] == ["  child_ref_list: + kid3", "  child_ref_list: - kid2"]
+
+
+def test_confirmation_mode_from_the_environment(monkeypatch):
+    monkeypatch.delenv("GRAMPS_MCP_CONFIRMATION", raising=False)
+    assert confirmation_mode() == "required"
+    monkeypatch.setenv("GRAMPS_MCP_CONFIRMATION", " When-Supported ")
+    assert confirmation_mode() == "when-supported"
+    monkeypatch.setenv("GRAMPS_MCP_CONFIRMATION", "never")
+    with pytest.raises(ValueError, match="must be one of required, when-supported"):
+        confirmation_mode()
+
+
+def raw(action: str, content: dict[str, Any] | None = None):
+    async def handler(message, response_type, params, context):
+        return ElicitResult(action=action, content=content)  # type: ignore[arg-type]
+
+    return handler
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize(
+    ("action", "content", "expected"),
+    [
+        ("decline", None, "The user declined."),
+        ("cancel", None, "dismissed the confirmation (cancel)"),
+        ("accept", {}, "accept without confirming"),
+        ("accept", {"value": True}, "accept without confirming"),
+        (
+            "accept",
+            {"confirm": False},
+            'accept without confirming (content: {"confirm": false})',
+        ),
+    ],
+)
+async def test_every_non_confirmation_says_what_the_client_sent(
+    mode, action, content, expected
+):
+    gramps = FakeGramps({"1": person("1", "Marie", "Dupont")})
+    result = parsed(
+        await call(
+            make_server(gramps, "when-supported"),
+            [update("1", gender=1)],
+            mode,
+            elicitation_handler=raw(action, content),
+        )
+    )
+    assert result.status == "declined"
+    assert expected in result.message
+    assert writes(gramps) == []
+
+
+@pytest.mark.parametrize("mode", MODES)
+async def test_when_supported_applies_directly_for_clients_that_cannot_ask(mode):
+    gramps = FakeGramps({"1": person("1", "Marie", "Dupont")})
+    result = parsed(
+        await call(make_server(gramps, "when-supported"), [update("1", gender=1)], mode)
+    )
+    assert result.status == "applied"
+    assert "no confirmation" in result.message
+    assert gramps.objects["1"]["gender"] == 1
+
+
+@pytest.mark.parametrize("mode", MODES)
+async def test_when_supported_still_asks_clients_that_can(mode):
+    gramps = FakeGramps({"1": person("1", "Marie", "Dupont")})
+    handler = answer(True)
+    result = parsed(
+        await call(
+            make_server(gramps, "when-supported"),
+            [update("1", gender=1)],
+            mode,
+            elicitation_handler=handler,
+        )
+    )
+    assert result.status == "applied"
+    assert len(handler.messages) == 1
+    assert "no confirmation" not in result.message
+
+
+@pytest.mark.parametrize("mode", MODES)
+async def test_the_confirmation_outcome_is_logged_with_the_client_and_protocol(
+    mode, caplog
+):
+    from gramps_mcp.core import logger
+
+    gramps = FakeGramps({"1": person("1", "Marie", "Dupont")})
+    logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level("INFO", logger="gramps_mcp"):
+            await call(
+                make_server(gramps),
+                [update("1", gender=1)],
+                mode,
+                elicitation_handler=raw("cancel"),
+                client_info=Implementation(name="antigravity-test", version="1.2"),
+            )
+    finally:
+        logger.removeHandler(caplog.handler)
+    line = next(
+        r.getMessage() for r in caplog.records if "confirmation from" in r.getMessage()
+    )
+    assert "antigravity-test 1.2" in line and "cancel" in line
+    assert ("2026-07-28" if mode == "auto" else "2025-11-25") in line
