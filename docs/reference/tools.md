@@ -44,9 +44,19 @@ change, and asks the user once to confirm, through MCP elicitation. Nothing is
 written if the user declines or cancels, or if the client cannot ask: a client
 without elicitation support gets `not_applied` and the tree is untouched.
 
-Elicitation support is up to the client. A connection that uses the
-`2026-07-28` protocol version, where a server can no longer send a question in
-the middle of a call, is not handled yet: it gets `not_applied` too.
+Both ways of asking are supported: the question sent in the middle of the call
+by clients on protocol versions before `2026-07-28`, and the "input required"
+result that the call returns, and the client answers by calling again, from
+`2026-07-28` on. In the second flow the server sends a digest of the summary
+with its question, and counts the answer only if the summary it rebuilds on the
+retry has the same digest. If an object changed while the user was deciding, the
+user is asked again about what would now be written; after three tries, nothing
+is written.
+
+The tool also carries `_meta["anthropic/requiresUserInteraction"] = true`, which
+makes Claude Code show its own approval prompt on every call, whatever the
+permission mode. That prompt shows the raw arguments; the readable summary
+comes with the confirmation.
 
 Changes are written in order. If one fails, the earlier ones are undone in a
 single call to Gramps' transactions endpoint, which applies the undo all or

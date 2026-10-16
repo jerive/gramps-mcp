@@ -372,16 +372,33 @@ async def test_first_failure_writes_nothing_and_does_not_try_to_undo():
     assert ("POST", "/api/transactions/") not in gramps.calls
 
 
-def accept(value: bool):
+def answer(value: bool, before: Callable[[], None] | None = None):
     async def handler(message, response_type, params, context):
-        handler.seen = message
-        return ElicitResult(action="accept", content={"value": value})
+        handler.messages.append(message)
+        if before is not None and len(handler.messages) == 1:
+            before()
+        return ElicitResult(action="accept", content={"confirm": value})
 
+    handler.messages = []
     return handler
 
 
-async def call(server: FastMCP, operations: list[dict[str, Any]], **client_kwargs: Any):
-    async with Client(server, mode="legacy", **client_kwargs) as client:
+def cancel():
+    async def handler(message, response_type, params, context):
+        handler.messages.append(message)
+        return ElicitResult(action="cancel")
+
+    handler.messages = []
+    return handler
+
+
+MODES = ["legacy", "auto"]  # auto negotiates the 2026-07-28 protocol
+
+
+async def call(
+    server: FastMCP, operations: list[dict[str, Any]], mode: str = "auto", **kwargs: Any
+):
+    async with Client(server, mode=mode, **kwargs) as client:
         return await client.call_tool(
             "apply_changes", {"operations": operations}, raise_on_error=False
         )
@@ -391,56 +408,135 @@ def parsed(result: Any) -> ApplyChangesResult:
     return ApplyChangesResult.model_validate(result.structured_content)
 
 
-async def test_accepted_changes_are_written_after_one_confirmation():
+@pytest.mark.parametrize("mode", MODES)
+async def test_accepted_changes_are_written_after_one_confirmation(mode):
     gramps = FakeGramps({"1": person("1", "Marie", "Dupont")})
-    handler = accept(True)
+    handler = answer(True)
     result = parsed(
         await call(
-            make_server(gramps), [update("1", gender=1)], elicitation_handler=handler
+            make_server(gramps),
+            [update("1", gender=1)],
+            mode,
+            elicitation_handler=handler,
         )
     )
     assert result.status == "applied"
     assert writes(gramps) == [("PUT", "/api/people/1")]
     assert gramps.objects["1"]["gender"] == 1
-    assert "gender: 0 → 1" in handler.seen
+    assert len(handler.messages) == 1 and "gender: 0 → 1" in handler.messages[0]
 
 
-async def test_declined_changes_write_nothing():
+@pytest.mark.parametrize("mode", MODES)
+async def test_declined_changes_write_nothing(mode):
     gramps = FakeGramps({"1": person("1", "Marie", "Dupont")})
     result = parsed(
         await call(
             make_server(gramps),
             [update("1", gender=1)],
-            elicitation_handler=accept(False),
+            mode,
+            elicitation_handler=answer(False),
         )
     )
     assert result.status == "declined"
     assert writes(gramps) == []
 
 
-async def test_client_without_confirmation_support_writes_nothing():
+@pytest.mark.parametrize("mode", MODES)
+async def test_cancelled_confirmation_writes_nothing(mode):
     gramps = FakeGramps({"1": person("1", "Marie", "Dupont")})
-    result = parsed(await call(make_server(gramps), [update("1", gender=1)]))
-    assert result.status == "not_applied"
+    result = parsed(
+        await call(
+            make_server(gramps),
+            [update("1", gender=1)],
+            mode,
+            elicitation_handler=cancel(),
+        )
+    )
+    assert result.status == "declined"
     assert writes(gramps) == []
 
 
-async def test_unknown_handle_is_reported_before_asking_anything():
-    handler = accept(True)
+@pytest.mark.parametrize("mode", MODES)
+async def test_client_without_confirmation_support_writes_nothing(mode):
+    gramps = FakeGramps({"1": person("1", "Marie", "Dupont")})
+    result = parsed(await call(make_server(gramps), [update("1", gender=1)], mode))
+    assert result.status == "not_applied"
+    assert "cannot ask" in result.message
+    assert writes(gramps) == []
+
+
+@pytest.mark.parametrize("mode", MODES)
+async def test_unknown_handle_is_reported_before_asking_anything(mode):
+    handler = answer(True)
     result = parsed(
         await call(
             make_server(FakeGramps({})),
             [update("missing", gender=1)],
+            mode,
             elicitation_handler=handler,
         )
     )
     assert result.status == "invalid"
-    assert not hasattr(handler, "seen")
+    assert handler.messages == []
 
 
-async def test_malformed_operations_are_refused_by_the_tool_schema():
+@pytest.mark.parametrize("mode", MODES)
+async def test_object_changed_while_asking_means_asking_again(mode):
+    gramps = FakeGramps({"1": person("1", "Marie", "Dupont", birth=1824)})
+
+    def someone_else_edits() -> None:
+        gramps.objects["1"] = {**gramps.objects["1"], "birth": 1830}
+
+    handler = answer(True, before=someone_else_edits)
+    result = parsed(
+        await call(
+            make_server(gramps),
+            [update("1", birth=1842)],
+            mode,
+            elicitation_handler=handler,
+        )
+    )
+    assert result.status == "applied"
+    assert len(handler.messages) == 2
+    assert "birth: 1824 → 1842" in handler.messages[0]
+    assert "birth: 1830 → 1842" in handler.messages[1]
+    assert gramps.objects["1"]["birth"] == 1842
+
+
+async def test_confirmation_that_keeps_going_stale_writes_nothing():
+    gramps = FakeGramps({"1": person("1", "Marie", "Dupont", birth=1824)})
+    version = [1824]
+
+    async def handler(message, response_type, params, context):
+        version[0] += 1
+        gramps.objects["1"] = {**gramps.objects["1"], "birth": version[0]}
+        return ElicitResult(action="accept", content={"confirm": True})
+
+    result = parsed(
+        await call(
+            make_server(gramps),
+            [update("1", birth=1900)],
+            "legacy",
+            elicitation_handler=handler,
+        )
+    )
+    assert result.status == "not_applied"
+    assert "kept changing" in result.message
+    assert writes(gramps) == []
+
+
+@pytest.mark.parametrize("mode", MODES)
+async def test_malformed_operations_are_refused_by_the_tool_schema(mode):
     gramps = FakeGramps({"1": person("1", "Marie", "Dupont")})
     bad = {"op": "update", "type": "people", "handle": "1", "changes": {"handle": "x"}}
-    result = await call(make_server(gramps), [bad], elicitation_handler=accept(True))
+    result = await call(
+        make_server(gramps), [bad], mode, elicitation_handler=answer(True)
+    )
     assert result.is_error
     assert writes(gramps) == []
+
+
+async def test_tool_asks_claude_code_for_a_confirmation_every_time():
+    async with Client(make_server(FakeGramps({}))) as client:
+        (tool,) = await client.list_tools()
+    assert tool.meta["anthropic/requiresUserInteraction"] is True

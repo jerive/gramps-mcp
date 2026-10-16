@@ -7,6 +7,7 @@ can change the tree without going through `apply_changes` and a confirmation.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal
@@ -16,7 +17,16 @@ from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.elicitation import AcceptedElicitation
 from mcp import MCPError
-from mcp.types import ToolAnnotations
+from mcp.types import (
+    ClientCapabilities,
+    ElicitationCapability,
+    ElicitRequest,
+    ElicitRequestFormParams,
+    ElicitResult,
+    FormElicitationCapability,
+    InputRequiredResult,
+    ToolAnnotations,
+)
 from pydantic import (
     AfterValidator,
     BaseModel,
@@ -28,6 +38,11 @@ from pydantic import (
 
 MAX_OPERATIONS = 20
 MAX_VALUE_CHARS = 60
+MAX_CONFIRMATIONS = 3
+CONFIRM_KEY = "confirm"
+# From this protocol version on, a server cannot send a question in the middle
+# of a call: it returns an `InputRequiredResult` and the client calls again.
+MODERN_PROTOCOL_FROM = "2026-07-28"
 
 ObjectType = Literal[
     "people",
@@ -413,6 +428,69 @@ async def execute(
     )
 
 
+class Confirmation(BaseModel):
+    confirm: bool = Field(default=True, title="Apply these changes")
+
+
+Decision = Literal["accepted", "declined", "unsupported"]
+
+
+def _digest(message: str) -> str:
+    return hashlib.sha256(message.encode()).hexdigest()[:32]
+
+
+def _is_modern(ctx: Context) -> bool:
+    request = ctx.request_context
+    return request is not None and request.protocol_version >= MODERN_PROTOCOL_FROM
+
+
+async def _ask_legacy(ctx: Context, message: str) -> Decision:
+    try:
+        answer = await ctx.elicit(message, response_type=Confirmation)
+    except (MCPError, ToolError):
+        return "unsupported"
+    if isinstance(answer, AcceptedElicitation) and answer.data.confirm:
+        return "accepted"
+    return "declined"
+
+
+def _ask_modern(ctx: Context, message: str) -> Decision | InputRequiredResult:
+    """Asks through the multi-round-trip flow.
+
+    The state sent with the question is a digest of what the user is shown, and
+    it only counts as a confirmation if the summary rebuilt on the retry has the
+    same digest. If an object changed or the arguments differ, the user is asked
+    again about what would now be written.
+    """
+    can_ask = ctx.session.check_client_capability(
+        ClientCapabilities(
+            elicitation=ElicitationCapability(form=FormElicitationCapability())
+        )
+    )
+    if not can_ask:
+        return "unsupported"
+    digest = _digest(message)
+    responses = ctx.input_responses
+    if responses is not None and ctx.request_state == digest:
+        answer = responses.get(CONFIRM_KEY)
+        if isinstance(answer, ElicitResult):
+            confirmed = answer.action == "accept" and bool(
+                (answer.content or {}).get("confirm", False)
+            )
+            return "accepted" if confirmed else "declined"
+    return InputRequiredResult(
+        input_requests={
+            CONFIRM_KEY: ElicitRequest(
+                params=ElicitRequestFormParams(
+                    message=message,
+                    requested_schema=Confirmation.model_json_schema(),
+                )
+            )
+        },
+        request_state=digest,
+    )
+
+
 def register_apply_changes(
     server: FastMCP, client: httpx2.AsyncClient, *, auth: Any = None
 ) -> None:
@@ -433,27 +511,54 @@ def register_apply_changes(
             idempotent_hint=False,
             open_world_hint=False,
         ),
+        meta={"anthropic/requiresUserInteraction": True},
         auth=auth,
     )
-    async def apply_changes(operations: Operations, ctx: Context) -> ApplyChangesResult:
-        try:
-            planned = await plan(client, operations)
-        except ChangeError as exc:
-            return ApplyChangesResult(status="invalid", message=str(exc))
+    async def apply_changes(
+        operations: Operations, ctx: Context
+    ) -> ApplyChangesResult | InputRequiredResult:
+        for _ in range(MAX_CONFIRMATIONS):
+            try:
+                planned = await plan(client, operations)
+            except ChangeError as exc:
+                return ApplyChangesResult(status="invalid", message=str(exc))
+            message = format_confirmation(planned)
 
-        try:
-            answer = await ctx.elicit(format_confirmation(planned), response_type=bool)
-        except (MCPError, ToolError):
-            return ApplyChangesResult(
-                status="not_applied",
-                message=(
-                    "This client cannot ask the user for confirmation, so nothing "
-                    "was written."
-                ),
-            )
-        if not isinstance(answer, AcceptedElicitation) or answer.data is not True:
-            return ApplyChangesResult(
-                status="declined", message="The user did not confirm."
-            )
+            if _is_modern(ctx):
+                decision = _ask_modern(ctx, message)
+                if isinstance(decision, InputRequiredResult):
+                    return decision
+            else:
+                decision = await _ask_legacy(ctx, message)
+                if decision == "accepted":
+                    try:
+                        changed = (
+                            format_confirmation(await plan(client, operations))
+                            != message
+                        )
+                    except ChangeError as exc:
+                        return ApplyChangesResult(status="invalid", message=str(exc))
+                    if changed:
+                        continue
 
-        return await execute(client, planned)
+            if decision == "unsupported":
+                return ApplyChangesResult(
+                    status="not_applied",
+                    message=(
+                        "This client cannot ask the user for confirmation, so "
+                        "nothing was written."
+                    ),
+                )
+            if decision == "declined":
+                return ApplyChangesResult(
+                    status="declined", message="The user did not confirm."
+                )
+            return await execute(client, planned)
+
+        return ApplyChangesResult(
+            status="not_applied",
+            message=(
+                "The objects kept changing while waiting for confirmation, so "
+                "nothing was written. Try again."
+            ),
+        )
