@@ -54,8 +54,8 @@ The documentation follows the [Diátaxis](https://diataxis.fr/) framework.
 ## Install
 
 ```sh
-pip install "gramps-mcp @ git+https://github.com/jerive/gramps-mcp@v0.2.1"
+pip install "gramps-mcp @ git+https://github.com/jerive/gramps-mcp@v0.3.0"
 ```
 
-Pin a release tag for reproducibility; drop `@v0.2.1` to track `master`.
+Pin a release tag for reproducibility; drop `@v0.3.0` to track `master`.
 Python 3.12 or newer is required.
