@@ -25,9 +25,10 @@ What this means in practice:
   Use Editor only when you want the agent to write.
 - **Writes need the user's confirmation.** `apply_changes` shows every change
   and writes only if the user accepts; a client that cannot ask writes nothing.
-  If an object changes while the user is deciding, they are asked again. This
-  guards against a model's mistake, not against a user who confirms without
-  reading.
+  If an object changes while the user is deciding, they are asked again. With
+  `GRAMPS_MCP_CONFIRMATION=when-supported`, a client that cannot ask is not
+  asked, so keep the default unless you accept that. This guards against a
+  model's mistake, not against a user who confirms without reading.
 - **Review what the agent did.** Gramps Web's transaction history records
   changes and can undo them.
 - **Prefer a copy.** Pointing the agent at a duplicate of the tree is the safest

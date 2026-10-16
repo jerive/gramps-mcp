@@ -53,6 +53,19 @@ retry has the same digest. If an object changed while the user was deciding, the
 user is asked again about what would now be written; after three tries, nothing
 is written.
 
+If the answer is not a confirmation, the result says what the client sent:
+`The user declined.`, `The user dismissed the confirmation (cancel).`, or
+`The client did not confirm: accept without confirming (content: ...)` when a
+client answered "accept" without the `confirm` field set to `true`. The server
+logs one line per decision at `INFO`, with the client name and version and the
+protocol version, for example `apply_changes confirmation from Copilot 1.2
+(protocol 2026-07-28): accept`.
+
+By default a client that cannot ask for confirmation writes nothing. Set
+[`GRAMPS_MCP_CONFIRMATION=when-supported`](configuration.md#confirmation-of-writes)
+to apply the changes directly for such clients instead; clients that can ask are
+still asked.
+
 The tool also carries `_meta["anthropic/requiresUserInteraction"] = true`, which
 makes Claude Code show its own approval prompt on every call, whatever the
 permission mode. That prompt shows the raw arguments; the readable summary
@@ -68,7 +81,7 @@ The result has a `status`:
 |---|---|
 | `applied` | Everything was written. Created objects come back with their handle. |
 | `declined` | The user did not confirm. |
-| `not_applied` | Nothing was written: the client cannot confirm, or the first change failed. |
+| `not_applied` | Nothing was written: the client cannot confirm (in `required` mode), or the first change failed. |
 | `invalid` | The changes could not be planned, for example an unknown handle. |
 | `rolled_back` | A change failed and the earlier ones were undone. |
 | `partly_applied` | A change failed and the earlier ones could not be undone; the message says why. |

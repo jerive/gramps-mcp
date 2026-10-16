@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal
 
 import httpx2
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
-from fastmcp.server.elicitation import AcceptedElicitation
+from fastmcp.server.elicitation import AcceptedElicitation, DeclinedElicitation
 from mcp import MCPError
 from mcp.types import (
     ClientCapabilities,
@@ -36,9 +37,12 @@ from pydantic import (
     model_validator,
 )
 
+from .core import logger
+
 MAX_OPERATIONS = 20
 MAX_VALUE_CHARS = 60
 MAX_CONFIRMATIONS = 3
+CONFIRMATION_MODES = ("required", "when-supported")
 CONFIRM_KEY = "confirm"
 # From this protocol version on, a server cannot send a question in the middle
 # of a call: it returns an `InputRequiredResult` and the client calls again.
@@ -279,6 +283,23 @@ def label_of(obj: JsonObject) -> str:
     return f"{text} ({ident})" if text else str(ident)
 
 
+def item_label(item: Any) -> str:
+    if isinstance(item, dict):
+        for key in ("ref", "handle", "string", "title"):
+            value = item.get(key)
+            if isinstance(value, str) and value:
+                return value
+    return short(item)
+
+
+def list_diff_lines(path: str, old: Any, new: Any) -> list[str]:
+    old_items: list[Any] = old if isinstance(old, list) else []
+    new_items: list[Any] = new if isinstance(new, list) else []
+    lines = [f"  {path}: + {item_label(x)}" for x in new_items if x not in old_items]
+    lines += [f"  {path}: - {item_label(x)}" for x in old_items if x not in new_items]
+    return lines or [f"  {path}: reordered"]
+
+
 def describe(planned: Planned, current: JsonObject | None) -> list[str]:
     if planned.op == "create":
         return [f"Create {planned.type}: {label_of(planned.body or {})}"]
@@ -287,7 +308,10 @@ def describe(planned: Planned, current: JsonObject | None) -> list[str]:
         return [f"Delete {planned.type}: {target}"]
     lines = [f"Update {planned.type}: {target}"]
     for path, old, new in leaf_diff(current or {}, planned.body or {}):
-        lines.append(f"  {path}: {short(old)} → {short(new)}")
+        if isinstance(old, list) or isinstance(new, list):
+            lines.extend(list_diff_lines(path, old, new))
+        else:
+            lines.append(f"  {path}: {short(old)} → {short(new)}")
     return lines
 
 
@@ -435,6 +459,27 @@ class Confirmation(BaseModel):
 Decision = Literal["accepted", "declined", "unsupported"]
 
 
+@dataclass(frozen=True)
+class Answer:
+    decision: Decision
+    detail: str
+
+
+UNSUPPORTED = Answer("unsupported", "the client cannot ask for confirmation")
+
+
+def confirmation_mode() -> Literal["required", "when-supported"]:
+    value = os.environ.get("GRAMPS_MCP_CONFIRMATION", "required").strip().lower()
+    if value == "required":
+        return "required"
+    if value == "when-supported":
+        return "when-supported"
+    raise ValueError(
+        f"GRAMPS_MCP_CONFIRMATION must be one of {', '.join(CONFIRMATION_MODES)}, "
+        f"got {value!r}"
+    )
+
+
 def _digest(message: str) -> str:
     return hashlib.sha256(message.encode()).hexdigest()[:32]
 
@@ -444,17 +489,40 @@ def _is_modern(ctx: Context) -> bool:
     return request is not None and request.protocol_version >= MODERN_PROTOCOL_FROM
 
 
-async def _ask_legacy(ctx: Context, message: str) -> Decision:
+def _client_label(ctx: Context) -> str:
+    params = getattr(ctx.session, "client_params", None)
+    info = getattr(params, "client_info", None)
+    name = getattr(info, "name", None) or "unknown client"
+    version = getattr(info, "version", None)
+    request = ctx.request_context
+    protocol = request.protocol_version if request is not None else "?"
+    return f"{name} {version or ''} (protocol {protocol})".replace("  ", " ")
+
+
+def _interpret(action: str, content: dict[str, Any] | None) -> Answer:
+    if action == "accept":
+        if (content or {}).get("confirm") is True:
+            return Answer("accepted", "accept")
+        return Answer(
+            "declined", f"accept without confirming (content: {json.dumps(content)})"
+        )
+    return Answer("declined", action)
+
+
+async def _ask_legacy(ctx: Context, message: str) -> Answer:
     try:
         answer = await ctx.elicit(message, response_type=Confirmation)
     except (MCPError, ToolError):
-        return "unsupported"
-    if isinstance(answer, AcceptedElicitation) and answer.data.confirm:
-        return "accepted"
-    return "declined"
+        return UNSUPPORTED
+    if isinstance(answer, AcceptedElicitation):
+        # The model's default would turn an empty answer into a confirmation.
+        return _interpret("accept", answer.data.model_dump(exclude_unset=True))
+    return _interpret(
+        "decline" if isinstance(answer, DeclinedElicitation) else "cancel", None
+    )
 
 
-def _ask_modern(ctx: Context, message: str) -> Decision | InputRequiredResult:
+def _ask_modern(ctx: Context, message: str) -> Answer | InputRequiredResult:
     """Asks through the multi-round-trip flow.
 
     The state sent with the question is a digest of what the user is shown, and
@@ -468,16 +536,13 @@ def _ask_modern(ctx: Context, message: str) -> Decision | InputRequiredResult:
         )
     )
     if not can_ask:
-        return "unsupported"
+        return UNSUPPORTED
     digest = _digest(message)
     responses = ctx.input_responses
     if responses is not None and ctx.request_state == digest:
         answer = responses.get(CONFIRM_KEY)
         if isinstance(answer, ElicitResult):
-            confirmed = answer.action == "accept" and bool(
-                (answer.content or {}).get("confirm", False)
-            )
-            return "accepted" if confirmed else "declined"
+            return _interpret(answer.action, answer.content)
     return InputRequiredResult(
         input_requests={
             CONFIRM_KEY: ElicitRequest(
@@ -491,9 +556,29 @@ def _ask_modern(ctx: Context, message: str) -> Decision | InputRequiredResult:
     )
 
 
+def _declined_message(detail: str) -> str:
+    if detail == "decline":
+        return "The user declined."
+    if detail == "cancel":
+        return "The user dismissed the confirmation (cancel)."
+    return f"The client did not confirm: {detail}."
+
+
 def register_apply_changes(
-    server: FastMCP, client: httpx2.AsyncClient, *, auth: Any = None
+    server: FastMCP,
+    client: httpx2.AsyncClient,
+    *,
+    auth: Any = None,
+    confirmation: Literal["required", "when-supported"] | None = None,
 ) -> None:
+    mode = confirmation or confirmation_mode()
+    asks = (
+        "The user is shown every change and must confirm before anything is written."
+        if mode == "required"
+        else "If the client can ask the user, they are shown every change and "
+        "must confirm; a client that cannot ask has the changes applied directly."
+    )
+
     @server.tool(
         name="apply_changes",
         description=(
@@ -501,8 +586,7 @@ def register_apply_changes(
             "to write. Give the whole set of changes as a list of operations: "
             "`create` (full object), `update` (handle plus only the changed "
             "fields) or `delete` (handle). Look up handles with the read tools "
-            "first. The user is shown every change and must confirm before "
-            "anything is written. If a change fails, the earlier ones are "
+            f"first. {asks} If a change fails, the earlier ones are "
             f"undone. At most {MAX_OPERATIONS} operations per call."
         ),
         annotations=ToolAnnotations(
@@ -525,12 +609,12 @@ def register_apply_changes(
             message = format_confirmation(planned)
 
             if _is_modern(ctx):
-                decision = _ask_modern(ctx, message)
-                if isinstance(decision, InputRequiredResult):
-                    return decision
+                answer = _ask_modern(ctx, message)
+                if isinstance(answer, InputRequiredResult):
+                    return answer
             else:
-                decision = await _ask_legacy(ctx, message)
-                if decision == "accepted":
+                answer = await _ask_legacy(ctx, message)
+                if answer.decision == "accepted":
                     try:
                         changed = (
                             format_confirmation(await plan(client, operations))
@@ -541,18 +625,31 @@ def register_apply_changes(
                     if changed:
                         continue
 
-            if decision == "unsupported":
+            logger.info(
+                "apply_changes confirmation from %s: %s",
+                _client_label(ctx),
+                answer.detail,
+            )
+            if answer.decision == "declined":
                 return ApplyChangesResult(
-                    status="not_applied",
-                    message=(
-                        "This client cannot ask the user for confirmation, so "
-                        "nothing was written."
-                    ),
+                    status="declined", message=_declined_message(answer.detail)
                 )
-            if decision == "declined":
-                return ApplyChangesResult(
-                    status="declined", message="The user did not confirm."
+            if answer.decision == "unsupported":
+                if mode == "required":
+                    return ApplyChangesResult(
+                        status="not_applied",
+                        message=(
+                            "This client cannot ask the user for confirmation, so "
+                            "nothing was written."
+                        ),
+                    )
+                logger.warning(
+                    "applying without confirmation: %s cannot ask for one",
+                    _client_label(ctx),
                 )
+                result = await execute(client, planned)
+                result.message += " (no confirmation: the client cannot ask for one)"
+                return result
             return await execute(client, planned)
 
         return ApplyChangesResult(
