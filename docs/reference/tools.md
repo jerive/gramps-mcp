@@ -40,7 +40,26 @@ as are `handle`, `_class` and the read-only fields (`backlinks`, `extended`,
 on the same object.
 
 The server reads the current objects, builds a readable summary of every
-change, and asks the user once to confirm, through MCP elicitation. Nothing is
+change, and asks the user once to confirm, through MCP elicitation. The summary
+names things instead of showing handles and raw fields: people, families and
+events are named (through the API's `profile=self`, or from the objects created
+in the same set), field names become words and a date changes as one line:
+
+```
+Apply these 4 change(s) to the tree?
+1. Add event: Birth, 10 août 2010
+2. Add person: Ileana Viveret
+    sex: female
+    events: Birth, 10 août 2010
+3. Add family: family of Jérôme Benoît Viveret
+    father: Jérôme Benoît Viveret
+    children: Ileana Viveret
+4. Edit person: Jérôme Benoît Viveret (I0001)
+    families: add family of Jérôme Benoît Viveret
+```
+
+A reference that is not in the tree shows as "a person that is not in the tree"
+rather than a handle. Nothing is
 written if the user declines or cancels, or if the client cannot ask: a client
 without elicitation support gets `not_applied` and the tree is untouched.
 
