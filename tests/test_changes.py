@@ -20,15 +20,10 @@ from gramps_mcp.changes import (
     CreateOperation,
     DeleteOperation,
     Operations,
-    Planned,
     UpdateOperation,
     confirmation_mode,
-    describe,
     execute,
     format_confirmation,
-    label_of,
-    leaf_diff,
-    list_diff_lines,
     merge_changes,
     plan,
     register_apply_changes,
@@ -137,18 +132,6 @@ def test_merge_changes_is_deep_and_keeps_the_rest():
     merged = merge_changes(current, {"a": {"b": 9}, "list": [3]})
     assert merged == {"a": {"b": 9, "c": 2}, "list": [3], "keep": True}
     assert current["a"]["b"] == 1
-
-
-def test_leaf_diff_lists_only_changed_paths():
-    old = {"a": {"b": 1, "c": 2}, "x": "same"}
-    new = {"a": {"b": 9, "c": 2}, "x": "same", "y": "added"}
-    assert leaf_diff(old, new) == [("a.b", 1, 9), ("y", None, "added")]
-
-
-def test_label_of_person_and_fallbacks():
-    assert label_of(person("1", "Marie", "Dupont")) == "Marie Dupont (I1)"
-    assert label_of({"handle": "h", "title": "Lyon"}) == "Lyon (h)"
-    assert label_of({"handle": "h"}) == "h"
 
 
 def test_read_routes_only():
@@ -303,7 +286,7 @@ async def test_plan_describes_the_diff_and_rejects_unknown_handles():
     assert planned[0].body is not None and planned[0].body["birth"] == 1842
     assert planned[0].body["primary_name"]["first_name"] == "Marie"
     text = format_confirmation(planned)
-    assert "Update people: Marie Dupont (I1)" in text and "birth: 1824 → 1842" in text
+    assert "Edit person: Marie Dupont (I1)" in text and "birth: 1824 → 1842" in text
     with pytest.raises(ChangeError, match="does not exist"):
         await plan(
             gramps.client(), OPERATIONS.validate_python([update("zzz", gender=1)])
@@ -430,7 +413,7 @@ async def test_accepted_changes_are_written_after_one_confirmation(mode):
     assert result.status == "applied"
     assert writes(gramps) == [("PUT", "/api/people/1")]
     assert gramps.objects["1"]["gender"] == 1
-    assert len(handler.messages) == 1 and "gender: 0 → 1" in handler.messages[0]
+    assert len(handler.messages) == 1 and "sex: female → male" in handler.messages[0]
 
 
 @pytest.mark.parametrize("mode", MODES)
@@ -547,28 +530,6 @@ async def test_tool_asks_claude_code_for_a_confirmation_every_time():
     async with Client(make_server(FakeGramps({}))) as client:
         (tool,) = await client.list_tools()
     assert tool.meta["anthropic/requiresUserInteraction"] is True
-
-
-def test_list_changes_are_shown_as_added_and_removed_items():
-    old = [{"ref": "kid1", "frel": "Birth"}, {"ref": "kid2"}]
-    new = [{"ref": "kid1", "frel": "Birth"}, {"ref": "kid3", "frel": "Birth"}]
-    assert list_diff_lines("child_ref_list", old, new) == [
-        "  child_ref_list: + kid3",
-        "  child_ref_list: - kid2",
-    ]
-    assert list_diff_lines("tag_list", ["a", "b"], ["b", "a"]) == [
-        "  tag_list: reordered"
-    ]
-    planned = Planned(
-        "update",
-        "families",
-        "f",
-        "PUT",
-        "/api/families/f",
-        {"handle": "f", "child_ref_list": new},
-    )
-    lines = describe(planned, {"handle": "f", "child_ref_list": old})
-    assert lines[1:] == ["  child_ref_list: + kid3", "  child_ref_list: - kid2"]
 
 
 def test_confirmation_mode_from_the_environment(monkeypatch):

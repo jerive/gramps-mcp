@@ -38,6 +38,7 @@ from pydantic import (
 )
 
 from .core import logger
+from .summary import Labeler, describe_operation
 
 MAX_OPERATIONS = 20
 MAX_VALUE_CHARS = 60
@@ -231,6 +232,7 @@ class Planned:
     method: Literal["POST", "PUT", "DELETE"]
     path: str
     body: JsonObject | None
+    current: JsonObject | None = None
     lines: list[str] = field(default_factory=list)
 
     def summary(self, handle: str | None = None) -> ChangeSummary:
@@ -254,73 +256,12 @@ def merge_changes(current: JsonObject, changes: JsonObject) -> JsonObject:
     return merged
 
 
-def leaf_diff(old: Any, new: Any, prefix: str = "") -> list[tuple[str, Any, Any]]:
-    if isinstance(old, dict) and isinstance(new, dict):
-        out: list[tuple[str, Any, Any]] = []
-        for key in sorted(set(old) | set(new)):
-            path = f"{prefix}.{key}" if prefix else key
-            out.extend(leaf_diff(old.get(key), new.get(key), path))
-        return out
-    return [] if old == new else [(prefix, old, new)]
-
-
-def short(value: Any) -> str:
-    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-    return text if len(text) <= MAX_VALUE_CHARS else text[: MAX_VALUE_CHARS - 1] + "…"
-
-
-def label_of(obj: JsonObject) -> str:
-    name = obj.get("primary_name")
-    if isinstance(name, dict):
-        surnames = name.get("surname_list") or [{}]
-        parts = [name.get("first_name"), surnames[0].get("surname")]
-        text = " ".join(p for p in parts if p)
-    else:
-        text = obj.get("title") or obj.get("name") or obj.get("description") or ""
-        if isinstance(text, dict):
-            text = text.get("string", "")
-    ident = obj.get("gramps_id") or obj.get("handle") or "?"
-    return f"{text} ({ident})" if text else str(ident)
-
-
-def item_label(item: Any) -> str:
-    if isinstance(item, dict):
-        for key in ("ref", "handle", "string", "title"):
-            value = item.get(key)
-            if isinstance(value, str) and value:
-                return value
-    return short(item)
-
-
-def list_diff_lines(path: str, old: Any, new: Any) -> list[str]:
-    old_items: list[Any] = old if isinstance(old, list) else []
-    new_items: list[Any] = new if isinstance(new, list) else []
-    lines = [f"  {path}: + {item_label(x)}" for x in new_items if x not in old_items]
-    lines += [f"  {path}: - {item_label(x)}" for x in old_items if x not in new_items]
-    return lines or [f"  {path}: reordered"]
-
-
-def describe(planned: Planned, current: JsonObject | None) -> list[str]:
-    if planned.op == "create":
-        return [f"Create {planned.type}: {label_of(planned.body or {})}"]
-    target = label_of(current or {})
-    if planned.op == "delete":
-        return [f"Delete {planned.type}: {target}"]
-    lines = [f"Update {planned.type}: {target}"]
-    for path, old, new in leaf_diff(current or {}, planned.body or {}):
-        if isinstance(old, list) or isinstance(new, list):
-            lines.extend(list_diff_lines(path, old, new))
-        else:
-            lines.append(f"  {path}: {short(old)} → {short(new)}")
-    return lines
-
-
 def format_confirmation(planned: list[Planned]) -> str:
     lines = [f"Apply these {len(planned)} change(s) to the tree?"]
     for index, item in enumerate(planned, start=1):
         first, *rest = item.lines
         lines.append(f"{index}. {first}")
-        lines.extend(rest)
+        lines.extend(f"    {line}" for line in rest)
     return "\n".join(lines)
 
 
@@ -351,27 +292,32 @@ async def plan(
     planned: list[Planned] = []
     for op in operations:
         if isinstance(op, CreateOperation):
-            created = Planned(
-                "create", op.type, None, "POST", f"/api/{op.type}/", op.object
+            planned.append(
+                Planned("create", op.type, None, "POST", f"/api/{op.type}/", op.object)
             )
-            created.lines = describe(created, None)
-            planned.append(created)
             continue
         current = await _current(client, op.type, op.handle)
         path = f"/api/{op.type}/{op.handle}"
         if isinstance(op, UpdateOperation):
-            item = Planned(
-                "update",
-                op.type,
-                op.handle,
-                "PUT",
-                path,
-                merge_changes(current, op.changes),
+            body = merge_changes(current, op.changes)
+            planned.append(
+                Planned("update", op.type, op.handle, "PUT", path, body, current)
             )
         else:
-            item = Planned("delete", op.type, op.handle, "DELETE", path, None)
-        item.lines = describe(item, current)
-        planned.append(item)
+            planned.append(
+                Planned("delete", op.type, op.handle, "DELETE", path, None, current)
+            )
+
+    created = {
+        str(item.body["handle"]): (item.type, item.body)
+        for item in planned
+        if item.op == "create" and item.body and item.body.get("handle")
+    }
+    labeler = Labeler(client, created)
+    for item in planned:
+        item.lines = await describe_operation(
+            labeler, item.op, item.type, item.body, item.current
+        )
     return planned
 
 
