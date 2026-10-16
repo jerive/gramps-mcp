@@ -11,16 +11,17 @@ from fastmcp import FastMCP
 from .core import GRAMPS_BACKEND_URL, build_google_auth_provider
 from .trees import mount_tree
 
-GQL_SPEC_DESCRIPTION = (
-    "Gramps Query Language (GQL) syntax reference. Read this before writing any `gql=` "
-    "filter expression passed to the tree-scoped Gramps search tools."
+GOQL_SPEC_DESCRIPTION = (
+    "Gramps Object Query Language (GOQL) guide. Read this before writing a "
+    "`where_expr` for the tree-scoped `post_<type>_query` tools, or a "
+    "`MatchesQuery` rule for the list tools."
 )
 
 
-def _read_gql_docs() -> str:
+def _read_goql_docs() -> str:
     return (
         resources.files("gramps_mcp")
-        .joinpath("gql_docs.md")
+        .joinpath("goql_docs.md")
         .read_text(encoding="utf-8")
     )
 
@@ -38,12 +39,12 @@ def build_server() -> FastMCP:
     mcp = FastMCP(auth=auth_provider)
 
     mcp.resource(
-        "gramps://gql-spec",
-        name="gramps-gql-spec",
-        title="Gramps Query Language specification",
-        description=GQL_SPEC_DESCRIPTION,
+        "gramps://goql-spec",
+        name="gramps-goql-spec",
+        title="Gramps Object Query Language guide",
+        description=GOQL_SPEC_DESCRIPTION,
         mime_type="text/markdown",
-    )(_read_gql_docs)
+    )(_read_goql_docs)
 
     openapi_spec_url = f"{GRAMPS_BACKEND_URL}/api/openapi.json"
     openapi_spec = httpx2.get(openapi_spec_url, timeout=30).raise_for_status().json()

@@ -40,7 +40,7 @@ the resulting token for you. See [Enable Google sign-in](google-oauth.md).
 
 ## Query language help for the agent
 
-The server publishes a `gramps://gql-spec` MCP resource with the
-[Gramps Query Language](https://gramps-project.org) reference, so an agent can
-look up GQL syntax before building a `gql=` filter against a tree's search
-tools.
+The server publishes a `gramps://goql-spec` MCP resource with a guide to the
+Gramps Object Query Language, so an agent can look up the syntax before
+building a `where_expr` for a tree's `post_<type>_query` tools. The same text
+is on the [GOQL page](../reference/goql.md).

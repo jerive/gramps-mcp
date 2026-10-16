@@ -36,8 +36,9 @@ tool call for `tree-a` can never be answered with `tree-b`'s credentials.
   parameter), so the server fills it in.
 - **Token upkeep.** Logins are retried at startup, since Gramps Web may still be
   booting, and tokens are refreshed in the background.
-- **A GQL reference.** The `gramps://gql-spec` resource gives an agent what it
-  needs to write queries, without stuffing it into every tool description.
+- **A query-language guide.** The `gramps://goql-spec` resource gives an agent
+  what it needs to write GOQL queries, without stuffing it into every tool
+  description.
 
 ## Authentication, in two layers
 

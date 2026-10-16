@@ -53,3 +53,15 @@ def test_admin_emails_parsed_from_env(monkeypatch):
     finally:
         monkeypatch.delenv("GRAMPS_MCP_ADMIN_EMAILS", raising=False)
         importlib.reload(core)
+
+
+def test_goql_guide_is_packaged():
+    from importlib import resources
+
+    text = (
+        resources.files("gramps_mcp")
+        .joinpath("goql_docs.md")
+        .read_text(encoding="utf-8")
+    )
+    assert "where_expr" in text
+    assert "MatchesQuery" in text

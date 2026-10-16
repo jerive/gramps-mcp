@@ -45,3 +45,15 @@ async def test_get_people_returns_real_data():
 
     assert result.content, "tool call returned no content"
     assert not result.is_error, f"tool call failed: {result.content}"
+
+
+async def test_goql_guide_resource_is_published():
+    from gramps_mcp.server import mcp
+
+    async with Client(mcp) as client:
+        uris = {str(r.uri) for r in await client.list_resources()}
+        contents = await client.read_resource("gramps://goql-spec")
+
+    assert "gramps://goql-spec" in uris
+    assert "gramps://gql-spec" not in uris
+    assert "where_expr" in contents[0].text

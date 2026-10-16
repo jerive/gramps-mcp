@@ -52,7 +52,7 @@ The list lives in `EXCLUDED_ROUTE_PREFIXES` in `src/gramps_mcp/trees.py`.
 
 | URI | Content |
 |---|---|
-| `gramps://gql-spec` | Reference for the Gramps Query Language, so an agent can write a valid `gql=` filter before calling a search tool. |
+| `gramps://goql-spec` | A guide to the Gramps Object Query Language ([the same text is here](goql.md)), so an agent can write a valid `where_expr` for the `post_<type>_query` tools before calling them. |
 
 ## Endpoint
 
