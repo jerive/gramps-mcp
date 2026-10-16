@@ -17,7 +17,14 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.elicitation import AcceptedElicitation
 from mcp import MCPError
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, Field
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 MAX_OPERATIONS = 20
 MAX_VALUE_CHARS = 60
@@ -35,36 +42,162 @@ ObjectType = Literal[
     "tags",
 ]
 
+OBJECT_CLASSES: dict[ObjectType, str] = {
+    "people": "Person",
+    "families": "Family",
+    "events": "Event",
+    "places": "Place",
+    "citations": "Citation",
+    "sources": "Source",
+    "repositories": "Repository",
+    "media": "Media",
+    "notes": "Note",
+    "tags": "Tag",
+}
 
-class CreateOperation(BaseModel):
+# Computed by the server, never written by a client.
+READ_ONLY_FIELDS = frozenset({"backlinks", "extended", "profile"})
+# Cannot be changed on an existing object.
+IMMUTABLE_FIELDS = READ_ONLY_FIELDS | {"handle", "_class", "change"}
+
+# Gramps handles are at most 50 characters.
+Handle = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)
+]
+JsonObject = dict[str, Any]
+Op = Literal["create", "update", "delete"]
+
+
+class _Strict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class CreateOperation(_Strict):
     op: Literal["create"]
     type: ObjectType
-    object: dict[str, Any] = Field(
-        description="The full Gramps object to add, including its `_class`."
-    )
-
-
-class UpdateOperation(BaseModel):
-    op: Literal["update"]
-    type: ObjectType
-    handle: str
-    changes: dict[str, Any] = Field(
+    object: JsonObject = Field(
         description=(
-            "Only the fields to change, as a nested object. They are merged into "
-            "the current object, so everything not mentioned is kept."
+            "The full Gramps object to add. `_class` may be left out; if given it "
+            "must match `type`. `handle` may be left out: one is assigned."
         )
     )
 
+    @model_validator(mode="after")
+    def _check_object(self) -> CreateOperation:
+        expected = OBJECT_CLASSES[self.type]
+        given = self.object.get("_class", expected)
+        if given != expected:
+            raise ValueError(
+                f"`type` {self.type!r} needs `_class` {expected!r}, got {given!r}"
+            )
+        forbidden = sorted(READ_ONLY_FIELDS & self.object.keys())
+        if forbidden:
+            raise ValueError(f"read-only fields cannot be set: {forbidden}")
+        self.object = {**self.object, "_class": expected}
+        return self
 
-class DeleteOperation(BaseModel):
+
+class UpdateOperation(_Strict):
+    op: Literal["update"]
+    type: ObjectType
+    handle: Handle
+    changes: JsonObject = Field(
+        min_length=1,
+        description=(
+            "Only the fields to change, as a nested object. They are merged into "
+            "the current object, so everything not mentioned is kept. A list "
+            "replaces the whole list. `handle`, `_class` and read-only fields "
+            "cannot be changed."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _check_changes(self) -> UpdateOperation:
+        forbidden = sorted(IMMUTABLE_FIELDS & self.changes.keys())
+        if forbidden:
+            raise ValueError(f"these fields cannot be changed: {forbidden}")
+        return self
+
+
+class DeleteOperation(_Strict):
     op: Literal["delete"]
     type: ObjectType
-    handle: str
+    handle: Handle
 
 
 Operation = Annotated[
     CreateOperation | UpdateOperation | DeleteOperation, Field(discriminator="op")
 ]
+
+
+def _reject_duplicates(operations: list[Operation]) -> list[Operation]:
+    seen: set[tuple[str, str]] = set()
+    for operation in operations:
+        if isinstance(operation, CreateOperation):
+            continue
+        key = (operation.type, operation.handle)
+        if key in seen:
+            raise ValueError(
+                f"{operation.type} {operation.handle} appears twice: merge the "
+                "changes into one operation"
+            )
+        seen.add(key)
+    return operations
+
+
+Operations = Annotated[
+    list[Operation],
+    Field(
+        min_length=1,
+        max_length=MAX_OPERATIONS,
+        description="The changes to apply, in order, as one set.",
+    ),
+    AfterValidator(_reject_duplicates),
+]
+
+
+class ChangeSummary(BaseModel):
+    op: Op
+    type: ObjectType
+    handle: Handle | None = Field(
+        description="The object's handle; for a created object, the one assigned."
+    )
+    description: str
+
+
+class Failure(BaseModel):
+    change: ChangeSummary
+    error: str
+
+
+class ApplyChangesResult(BaseModel):
+    status: Literal[
+        "applied",
+        "declined",
+        "not_applied",
+        "invalid",
+        "rolled_back",
+        "partly_applied",
+    ] = Field(
+        description=(
+            "applied: everything was written. declined: the user said no. "
+            "not_applied: nothing was written (see `message`). invalid: the "
+            "changes could not be planned. rolled_back: a change failed and the "
+            "earlier ones were undone. partly_applied: a change failed and the "
+            "earlier ones could not be undone."
+        )
+    )
+    message: str
+    applied: list[ChangeSummary] = Field(
+        default_factory=list, description="Changes currently in the tree."
+    )
+    rolled_back: list[ChangeSummary] = Field(
+        default_factory=list, description="Changes that were written, then undone."
+    )
+    failed: Failure | None = None
+    not_applied: list[ChangeSummary] = Field(
+        default_factory=list, description="Changes after the failure, never tried."
+    )
 
 
 class ChangeError(Exception):
@@ -73,21 +206,30 @@ class ChangeError(Exception):
 
 @dataclass
 class Planned:
-    op: str
-    type: str
+    op: Op
+    type: ObjectType
     handle: str | None
-    method: str
+    method: Literal["POST", "PUT", "DELETE"]
     path: str
-    body: dict[str, Any] | None
+    body: JsonObject | None
     lines: list[str] = field(default_factory=list)
 
+    def summary(self, handle: str | None = None) -> ChangeSummary:
+        return ChangeSummary(
+            op=self.op,
+            type=self.type,
+            handle=handle or self.handle,
+            description=self.lines[0],
+        )
 
-def merge_changes(current: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
+
+def merge_changes(current: JsonObject, changes: JsonObject) -> JsonObject:
     """Deep-merges `changes` into a copy of `current`; lists and scalars replace."""
     merged = dict(current)
     for key, value in changes.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = merge_changes(merged[key], value)
+        existing = merged.get(key)
+        if isinstance(value, dict) and isinstance(existing, dict):
+            merged[key] = merge_changes(existing, value)
         else:
             merged[key] = value
     return merged
@@ -108,7 +250,7 @@ def short(value: Any) -> str:
     return text if len(text) <= MAX_VALUE_CHARS else text[: MAX_VALUE_CHARS - 1] + "…"
 
 
-def label_of(obj: dict[str, Any]) -> str:
+def label_of(obj: JsonObject) -> str:
     name = obj.get("primary_name")
     if isinstance(name, dict):
         surnames = name.get("surname_list") or [{}]
@@ -122,7 +264,7 @@ def label_of(obj: dict[str, Any]) -> str:
     return f"{text} ({ident})" if text else str(ident)
 
 
-def describe(planned: Planned, current: dict[str, Any] | None) -> list[str]:
+def describe(planned: Planned, current: JsonObject | None) -> list[str]:
     if planned.op == "create":
         return [f"Create {planned.type}: {label_of(planned.body or {})}"]
     target = label_of(current or {})
@@ -150,7 +292,9 @@ def _error_message(response: httpx2.Response) -> str:
         return response.text[:200] or f"HTTP {response.status_code}"
 
 
-async def _current(client: httpx2.AsyncClient, type_: str, handle: str) -> dict:
+async def _current(
+    client: httpx2.AsyncClient, type_: ObjectType, handle: str
+) -> JsonObject:
     response = await client.get(f"/api/{type_}/{handle}")
     if response.status_code == 404:
         raise ChangeError(f"{type_} {handle} does not exist.")
@@ -158,58 +302,115 @@ async def _current(client: httpx2.AsyncClient, type_: str, handle: str) -> dict:
         raise ChangeError(
             f"Could not read {type_} {handle}: {_error_message(response)}"
         )
-    return response.json()
+    current: JsonObject = response.json()
+    return current
 
 
-async def plan(client: httpx2.AsyncClient, operations: list[Any]) -> list[Planned]:
-    if not operations:
-        raise ChangeError("No changes given.")
-    if len(operations) > MAX_OPERATIONS:
-        raise ChangeError(
-            f"At most {MAX_OPERATIONS} changes per call, got {len(operations)}."
-        )
+async def plan(
+    client: httpx2.AsyncClient, operations: list[Operation]
+) -> list[Planned]:
     planned: list[Planned] = []
     for op in operations:
-        if op.op == "create":
-            item = Planned(
+        if isinstance(op, CreateOperation):
+            created = Planned(
                 "create", op.type, None, "POST", f"/api/{op.type}/", op.object
             )
-            item.lines = describe(item, None)
+            created.lines = describe(created, None)
+            planned.append(created)
+            continue
+        current = await _current(client, op.type, op.handle)
+        path = f"/api/{op.type}/{op.handle}"
+        if isinstance(op, UpdateOperation):
+            item = Planned(
+                "update",
+                op.type,
+                op.handle,
+                "PUT",
+                path,
+                merge_changes(current, op.changes),
+            )
         else:
-            current = await _current(client, op.type, op.handle)
-            path = f"/api/{op.type}/{op.handle}"
-            if op.op == "update":
-                body = merge_changes(current, op.changes)
-                item = Planned("update", op.type, op.handle, "PUT", path, body)
-            else:
-                item = Planned("delete", op.type, op.handle, "DELETE", path, None)
-            item.lines = describe(item, current)
+            item = Planned("delete", op.type, op.handle, "DELETE", path, None)
+        item.lines = describe(item, current)
         planned.append(item)
     return planned
 
 
-async def execute(client: httpx2.AsyncClient, planned: list[Planned]) -> dict[str, Any]:
-    """Applies the changes in order and stops at the first failure.
+def _created_handle(transaction: list[JsonObject], class_name: str) -> str | None:
+    for item in transaction:
+        if item.get("type") == "add" and item.get("_class") == class_name:
+            handle = item.get("handle")
+            return handle if isinstance(handle, str) else None
+    return None
 
-    Gramps has no REST call that applies a mix of creates, updates and deletes
-    atomically, so a failure part-way leaves the earlier changes applied; the
-    result says exactly which.
+
+async def rollback(
+    client: httpx2.AsyncClient, transactions: list[list[JsonObject]]
+) -> str | None:
+    """Undoes applied changes in one call; returns an error message on failure.
+
+    Gramps replays the inverse of the transactions the write endpoints
+    returned, all or nothing, and refuses if an object changed since.
     """
-    applied: list[str] = []
+    payload = [item for transaction in transactions for item in transaction]
+    response = await client.post(
+        "/api/transactions/",
+        params={"undo": "true", "message": "Undo failed changes"},
+        json=payload,
+    )
+    return None if response.status_code < 400 else _error_message(response)
+
+
+async def execute(
+    client: httpx2.AsyncClient, planned: list[Planned]
+) -> ApplyChangesResult:
+    """Applies the changes in order; if one fails, undoes the earlier ones."""
+    applied: list[ChangeSummary] = []
+    transactions: list[list[JsonObject]] = []
     for index, item in enumerate(planned):
         response = await client.request(item.method, item.path, json=item.body)
-        if response.status_code >= 400:
-            return {
-                "status": "partly_applied" if applied else "failed",
-                "applied": applied,
-                "failed": {
-                    "change": item.lines[0],
-                    "error": _error_message(response),
-                },
-                "not_applied": [p.lines[0] for p in planned[index + 1 :]],
-            }
-        applied.append(item.lines[0])
-    return {"status": "applied", "applied": applied}
+        if response.status_code < 400:
+            transaction: list[JsonObject] = response.json()
+            transactions.append(transaction)
+            handle = (
+                _created_handle(transaction, OBJECT_CLASSES[item.type])
+                if item.op == "create"
+                else None
+            )
+            applied.append(item.summary(handle))
+            continue
+
+        failure = Failure(change=item.summary(), error=_error_message(response))
+        untried = [p.summary() for p in planned[index + 1 :]]
+        if not applied:
+            return ApplyChangesResult(
+                status="not_applied",
+                message="The first change failed; nothing was written.",
+                failed=failure,
+                not_applied=untried,
+            )
+        undo_error = await rollback(client, transactions)
+        if undo_error is None:
+            return ApplyChangesResult(
+                status="rolled_back",
+                message="A change failed, so the earlier ones were undone.",
+                rolled_back=applied,
+                failed=failure,
+                not_applied=untried,
+            )
+        return ApplyChangesResult(
+            status="partly_applied",
+            message=(
+                "A change failed and the earlier ones could not be undone: "
+                f"{undo_error}"
+            ),
+            applied=applied,
+            failed=failure,
+            not_applied=untried,
+        )
+    return ApplyChangesResult(
+        status="applied", message=f"Applied {len(applied)} change(s).", applied=applied
+    )
 
 
 def register_apply_changes(
@@ -223,32 +424,36 @@ def register_apply_changes(
             "`create` (full object), `update` (handle plus only the changed "
             "fields) or `delete` (handle). Look up handles with the read tools "
             "first. The user is shown every change and must confirm before "
-            f"anything is written. At most {MAX_OPERATIONS} operations per call."
+            "anything is written. If a change fails, the earlier ones are "
+            f"undone. At most {MAX_OPERATIONS} operations per call."
         ),
         annotations=ToolAnnotations(
-            readOnlyHint=False, destructiveHint=True, openWorldHint=False
+            read_only_hint=False,
+            destructive_hint=True,
+            idempotent_hint=False,
+            open_world_hint=False,
         ),
         auth=auth,
     )
-    async def apply_changes(
-        operations: list[Operation], ctx: Context
-    ) -> dict[str, Any]:
+    async def apply_changes(operations: Operations, ctx: Context) -> ApplyChangesResult:
         try:
             planned = await plan(client, operations)
         except ChangeError as exc:
-            return {"status": "invalid", "error": str(exc)}
+            return ApplyChangesResult(status="invalid", message=str(exc))
 
         try:
             answer = await ctx.elicit(format_confirmation(planned), response_type=bool)
         except (MCPError, ToolError):
-            return {
-                "status": "not_applied",
-                "reason": (
+            return ApplyChangesResult(
+                status="not_applied",
+                message=(
                     "This client cannot ask the user for confirmation, so nothing "
                     "was written."
                 ),
-            }
+            )
         if not isinstance(answer, AcceptedElicitation) or answer.data is not True:
-            return {"status": "declined", "reason": "The user did not confirm."}
+            return ApplyChangesResult(
+                status="declined", message="The user did not confirm."
+            )
 
         return await execute(client, planned)
