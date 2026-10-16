@@ -125,7 +125,7 @@ Still in the second terminal:
 
 ```sh
 python3 -m venv ~/mcp-venv
-~/mcp-venv/bin/pip install "gramps-mcp @ git+https://github.com/jerive/gramps-mcp@v0.3.0"
+~/mcp-venv/bin/pip install "gramps-mcp @ git+https://github.com/jerive/gramps-mcp@v0.4.0"
 ```
 
 ## 7. Start gramps-mcp
