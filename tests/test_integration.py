@@ -57,3 +57,19 @@ async def test_goql_guide_resource_is_published():
     assert "gramps://goql-spec" in uris
     assert "gramps://gql-spec" not in uris
     assert "where_expr" in contents[0].text
+
+
+async def test_writes_only_go_through_apply_changes():
+    from gramps_mcp.server import mcp
+
+    async with Client(mcp) as client:
+        names = {t.name for t in await client.list_tools()}
+
+    assert any(n.endswith("_apply_changes") for n in names)
+    writes = [
+        n
+        for n in names
+        if any(f"_{verb}_" in n for verb in ("put", "delete", "post", "patch"))
+        and not n.endswith("_query")
+    ]
+    assert not writes, f"generated write tools still exposed: {sorted(writes)}"
