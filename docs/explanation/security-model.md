@@ -23,6 +23,10 @@ What this means in practice:
   restore. Gramps Web's export and backup features exist for this.
 - **Default to a Member account.** A read-only account cannot corrupt anything.
   Use Editor only when you want the agent to write.
+- **Writes need the user's confirmation.** `apply_changes` shows every change
+  and writes only if the user accepts; a client that cannot ask writes nothing.
+  This guards against a model's mistake, not against a user who confirms
+  without reading.
 - **Review what the agent did.** Gramps Web's transaction history records
   changes and can undo them.
 - **Prefer a copy.** Pointing the agent at a duplicate of the tree is the safest

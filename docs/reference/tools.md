@@ -1,26 +1,72 @@
 # Tools and resources
 
-## Generated tools
+## Read tools
 
 For every tree in `GRAMPS_MCP_TREES`, the server downloads that Gramps Web API
-instance's `openapi.json` and generates one MCP tool per operation. Tools are
-mounted under a per-tree namespace:
+instance's `openapi.json` and generates one MCP tool for each **read**
+operation: every `GET`, and the `POST .../query/` searches, which take their
+criteria in the body. Tools are mounted under a per-tree namespace:
 
 ```
 tree-<name>_<operationId>
 ```
 
 For a tree named `example`, the operation `get_people` becomes
-`tree-example_get_people`, and `put_person` becomes `tree-example_put_person`.
-Every operation has its own `operationId` in Gramps Web API's OpenAPI document,
-so the names are stable and predictable. They follow the pattern
-`get_*`, `post_*`, `put_*` and `delete_*`.
+`tree-example_get_people`. Every operation has its own `operationId` in Gramps
+Web API's OpenAPI document, so the names are stable and predictable.
 
-The tool list therefore follows whichever Gramps Web API version you run. If
-the backend adds an endpoint, it shows up after the next restart.
+The tool list follows whichever Gramps Web API version you run. If the backend
+adds a read endpoint, it shows up after the next restart.
 
-A role limits what the tools can actually do: a **Member** account can call
-`put_person`, but Gramps Web will refuse it. See
+No generated tool writes. Every other `POST`, `PUT`, `PATCH` and `DELETE`
+(including `merge`, the bulk `objects` endpoints, `transactions` and `chat`) is
+excluded, so a new write endpoint is never exposed by accident.
+
+## The write tool
+
+`tree-<name>_apply_changes` is the only way to change a tree. It takes one set
+of 1 to 20 operations, in order:
+
+| `op` | Fields | Meaning |
+|---|---|---|
+| `create` | `type`, `object` | Add the full object. `_class` may be left out; if given it must match `type`. |
+| `update` | `type`, `handle`, `changes` | Merge `changes`, a nested object holding only the changed fields, into the current object. A list replaces the whole list. |
+| `delete` | `type`, `handle` | Delete the object. |
+
+`type` is one of `people`, `families`, `events`, `places`, `citations`,
+`sources`, `repositories`, `media`, `notes`, `tags`. Unknown keys are refused,
+as are `handle`, `_class` and the read-only fields (`backlinks`, `extended`,
+`profile`) in `changes`, a handle longer than 50 characters, and two operations
+on the same object.
+
+The server reads the current objects, builds a readable summary of every
+change, and asks the user once to confirm, through MCP elicitation. Nothing is
+written if the user declines or cancels, or if the client cannot ask: a client
+without elicitation support gets `not_applied` and the tree is untouched.
+
+Elicitation support is up to the client. A connection that uses the
+`2026-07-28` protocol version, where a server can no longer send a question in
+the middle of a call, is not handled yet: it gets `not_applied` too.
+
+Changes are written in order. If one fails, the earlier ones are undone in a
+single call to Gramps' transactions endpoint, which applies the undo all or
+nothing and refuses it if an object has changed since.
+
+The result has a `status`:
+
+| `status` | Meaning |
+|---|---|
+| `applied` | Everything was written. Created objects come back with their handle. |
+| `declined` | The user did not confirm. |
+| `not_applied` | Nothing was written: the client cannot confirm, or the first change failed. |
+| `invalid` | The changes could not be planned, for example an unknown handle. |
+| `rolled_back` | A change failed and the earlier ones were undone. |
+| `partly_applied` | A change failed and the earlier ones could not be undone; the message says why. |
+
+The preview shows the objects you name, not the ones Gramps updates as a
+consequence (editing a family also rewrites its members, deleting an event
+rewrites everyone who refers to it). The role of the service account still
+bounds what can be written: see
 [Create a Gramps Web service account](../how-to/service-account.md).
 
 ### Excluded routes
@@ -35,16 +81,12 @@ These prefixes are never turned into tools:
 | `/api/facts/`, `/api/facts` | Not useful to an agent. |
 | `/api/config`, `/api/oidc/config` | Server configuration is not useful to an agent. |
 
-The list lives in `EXCLUDED_ROUTE_PREFIXES` in `src/gramps_mcp/trees.py`.
+The list lives in `EXCLUDED_ROUTE_PREFIXES` in `src/gramps_mcp/trees.py`; the read-only rule is `map_route` in the same file.
 
 ### Request handling
 
-- **Output schemas are dropped**, since Gramps' response schemas are too loose
+- **Output schemas of the read tools are dropped**, since Gramps' response schemas are too loose
   for strict validation to help.
-- **`PUT` and `PATCH` bodies get the object `handle` filled in.** The tool
-  schema leaves `handle` out of the body because it collides with the path
-  parameter of the same name, but Gramps Web rejects an update without it in
-  the payload, so the server adds it.
 - **Authentication** to Gramps Web is automatic. The server logs in once per
   tree and refreshes the token in the background.
 

@@ -1,11 +1,11 @@
 # How it works
 
-## One OpenAPI document, one tool per endpoint
+## One OpenAPI document, one read tool per endpoint
 
 Gramps Web API publishes an OpenAPI document. `gramps-mcp` hands it to
 [FastMCP](https://gofastmcp.com/)'s `FastMCP.from_openapi()`, which produces an
-MCP tool for every operation. Nothing in this project describes a Gramps
-endpoint by hand. That is the whole design bet: the server stays a thin shell,
+MCP tool for every read operation. Nothing in this project describes a Gramps
+read endpoint by hand. That is the whole design bet: the server stays a thin shell,
 and the tool set tracks Gramps Web API for free.
 
 The bet only works because Gramps Web API gives every operation a unique
@@ -31,9 +31,12 @@ tool call for `tree-a` can never be answered with `tree-b`'s credentials.
   configuration. See [Tools and resources](../reference/tools.md#excluded-routes).
 - **Looser schemas.** Output schemas are dropped so a slightly unusual Gramps
   response doesn't make a tool call fail validation.
-- **Handle injection.** Gramps Web wants the object handle in the body of a
-  `PUT`, but the tool schema leaves it out (it collides with the path
-  parameter), so the server fills it in.
+- **One write tool.** Generated write endpoints would let a model send a raw
+  `PUT` body, which is how dangling references get written. They are all
+  excluded. `apply_changes` takes small typed operations, merges partial
+  updates into the current object itself, shows the user every change and
+  writes only after confirmation, and undoes earlier changes if a later one
+  fails.
 - **Token upkeep.** Logins are retried at startup, since Gramps Web may still be
   booting, and tokens are refreshed in the background.
 - **A query-language guide.** The `gramps://goql-spec` resource gives an agent

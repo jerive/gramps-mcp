@@ -11,9 +11,11 @@ the people in this tree"* — or edit the tree live by voice, the same way you'd
 dictate a change to an assistant in any other MCP-backed app.
 
 It points [FastMCP](https://gofastmcp.com/)'s `FastMCP.from_openapi()` at your
-Gramps Web API instance's `openapi.json` and auto-generates one MCP tool per
-REST endpoint, mounting one sub-server per configured tree behind optional
-Google OAuth and a per-tree membership check.
+Gramps Web API instance's `openapi.json` and auto-generates the read tools
+from the REST endpoints, mounting one sub-server per configured tree behind
+optional Google OAuth and a per-tree membership check. Writing goes through a
+single tool, `apply_changes`, which shows every change to the user and writes
+only once they confirm.
 
 !!! warning "Read this before pointing it at a real tree"
     This is a community project, not affiliated with or endorsed by the Gramps
