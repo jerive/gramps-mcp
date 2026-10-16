@@ -11,6 +11,7 @@ from fastmcp import FastMCP
 from fastmcp.server.providers.openapi.routing import MCPType
 from fastmcp.utilities.openapi import HTTPRoute
 
+from .changes import register_apply_changes
 from .core import (
     GRAMPS_BACKEND_URL,
     build_body_handle_injection_hook,
@@ -33,6 +34,29 @@ EXCLUDED_ROUTE_PREFIXES = (
     "/api/config",
     "/api/oidc/config",
 )
+
+
+def is_read_route(method: str, path: str) -> bool:
+    """Whether a route only reads data.
+
+    GET is a read, and so are the POST `.../query/` endpoints, which take their
+    search criteria in the body. Every other POST, PUT, PATCH and DELETE is a
+    write, including ones that look harmless (chat, parsers), so a new write
+    endpoint is never exposed by accident.
+    """
+    method = method.upper()
+    if method == "GET":
+        return True
+    return method == "POST" and path.rstrip("/").endswith("/query")
+
+
+def map_route(route: HTTPRoute, route_type: MCPType) -> MCPType:
+    """Keeps only the read routes; writes go through `apply_changes`."""
+    if route.path.startswith(EXCLUDED_ROUTE_PREFIXES) or route.path in ("/api/facts",):
+        return MCPType.EXCLUDE
+    if not is_read_route(route.method, route.path):
+        return MCPType.EXCLUDE
+    return route_type
 
 
 def _env_key(project: str) -> str:
@@ -82,13 +106,6 @@ def mount_tree(project: str, openapi_spec: dict[str, Any], mcp: FastMCP) -> None
         password=password,
     )
 
-    def route_mapper(route: HTTPRoute, route_type: MCPType) -> MCPType:
-        if route.path.startswith(EXCLUDED_ROUTE_PREFIXES) or route.path in (
-            "/api/facts",
-        ):
-            return MCPType.EXCLUDE
-        return route_type
-
     def get_bearer_token() -> str:
         return client.headers.get("Authorization", "").removeprefix("Bearer ").strip()
 
@@ -114,7 +131,8 @@ def mount_tree(project: str, openapi_spec: dict[str, Any], mcp: FastMCP) -> None
         openapi_spec=openapi_spec,
         client=client,
         name=f"Tree {project}",
-        route_map_fn=route_mapper,
+        route_map_fn=map_route,
         mcp_component_fn=customize_component,
     )
+    register_apply_changes(child, client, auth=tree_check)
     mcp.mount(child, namespace=f"tree-{project.lower()}")
