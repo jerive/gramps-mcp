@@ -45,6 +45,9 @@ markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.superfences
+  - pymdownx.snippets:
+      base_path: src/gramps_mcp
+      check_paths: true
 
 nav:
   - Home: index.md
@@ -58,6 +61,7 @@ nav:
   - Reference:
       - Configuration: reference/configuration.md
       - Tools and resources: reference/tools.md
+      - Querying with GOQL: reference/goql.md
   - Explanation:
       - How it works: explanation/how-it-works.md
       - Security and risk model: explanation/security-model.md
