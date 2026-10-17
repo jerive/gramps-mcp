@@ -8,7 +8,8 @@ shown the way they read, so the confirmation does not show raw JSON.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 import httpx2
 
@@ -79,7 +80,7 @@ FIELD_LABELS = {
 CREATE_FIELDS: dict[str, tuple[str, ...]] = {
     "people": ("gender", "event_ref_list", "family_list", "parent_family_list"),
     "families": ("father_handle", "mother_handle", "child_ref_list", "event_ref_list"),
-    "events": ("place", "description"),
+    "events": ("place",),
     "places": ("type",),
 }
 
@@ -272,9 +273,53 @@ def diff_paths(old: Any, new: Any, prefix: str = "") -> list[tuple[str, Any, Any
     return [] if old == new else [(prefix, old, new)]
 
 
-async def list_change_lines(
+@dataclass(frozen=True)
+class Detail:
+    """One line under a change: an addition, a removal, a value change or a fact."""
+
+    label: str
+    kind: Literal["add", "remove", "change", "info"]
+    text: str = ""
+    before: str = ""
+    after: str = ""
+
+    def line(self) -> str:
+        if self.kind == "add":
+            return f"{self.label}: add {self.text}"
+        if self.kind == "remove":
+            return f"{self.label}: remove {self.text}"
+        if self.kind == "change":
+            return f"{self.label}: {self.before} → {self.after}"
+        return f"{self.label}: {self.text}"
+
+
+@dataclass(frozen=True)
+class ChangeView:
+    """What one operation does, in words, for the text and the card."""
+
+    op: Literal["create", "update", "delete"]
+    type: str
+    title: str
+    details: tuple[Detail, ...] = ()
+
+    @property
+    def verb(self) -> str:
+        return {"create": "Add", "update": "Edit", "delete": "Delete"}[self.op]
+
+    @property
+    def noun(self) -> str:
+        return SINGULAR.get(self.type, self.type)
+
+    def lines(self) -> list[str]:
+        return [
+            f"{self.verb} {self.noun}: {self.title}",
+            *(d.line() for d in self.details),
+        ]
+
+
+async def list_change_details(
     labeler: Labeler, field: str, old: Any, new: Any
-) -> list[str]:
+) -> list[Detail]:
     reference = REFERENCES.get(field)
     old_items: list[Any] = old if isinstance(old, list) else []
     new_items: list[Any] = new if isinstance(new, list) else []
@@ -284,61 +329,70 @@ async def list_change_lines(
 
     old_keys, new_keys = [key(i) for i in old_items], [key(i) for i in new_items]
     label = field_label(field)
-    lines: list[str] = []
+    details: list[Detail] = []
     for item in new_items:
         if key(item) not in old_keys:
-            lines.append(f"{label}: add {await labeler.value(field, item)}")
+            details.append(Detail(label, "add", await labeler.value(field, item)))
     for item in old_items:
         if key(item) not in new_keys:
-            lines.append(f"{label}: remove {await labeler.value(field, item)}")
-    return lines or [f"{label}: reordered"]
+            details.append(Detail(label, "remove", await labeler.value(field, item)))
+    return details or [Detail(label, "info", "reordered")]
 
 
-async def update_lines(
+async def update_details(
     labeler: Labeler, current: JsonObject, new: JsonObject
-) -> list[str]:
-    lines: list[str] = []
+) -> list[Detail]:
+    details: list[Detail] = []
     for path, old, value in diff_paths(current, new):
         if isinstance(old, list) or isinstance(value, list):
-            lines.extend(await list_change_lines(labeler, path, old, value))
+            details.extend(await list_change_details(labeler, path, old, value))
         else:
             before = await labeler.value(path, old)
             after = await labeler.value(path, value)
-            lines.append(f"{field_label(path)}: {before} → {after}")
-    return lines
+            details.append(
+                Detail(field_label(path), "change", before=before, after=after)
+            )
+    return details
 
 
-async def create_lines(labeler: Labeler, type_: str, body: JsonObject) -> list[str]:
-    lines: list[str] = []
+async def create_details(
+    labeler: Labeler, type_: str, body: JsonObject
+) -> list[Detail]:
+    details: list[Detail] = []
     for field in CREATE_FIELDS.get(type_, ()):
         value = body.get(field)
         if value in (None, "", [], {}):
             continue
         if isinstance(value, list):
             texts = [await labeler.value(field, item) for item in value]
-            lines.append(f"{field_label(field)}: {', '.join(texts)}")
+            details.append(Detail(field_label(field), "info", ", ".join(texts)))
         else:
-            lines.append(f"{field_label(field)}: {await labeler.value(field, value)}")
-    return lines
+            details.append(
+                Detail(field_label(field), "info", await labeler.value(field, value))
+            )
+    return details
 
 
-async def describe_operation(
+async def view_operation(
     labeler: Labeler,
-    op: str,
+    op: Literal["create", "update", "delete"],
     type_: str,
     body: JsonObject | None,
     current: JsonObject | None,
-) -> list[str]:
-    noun = SINGULAR.get(type_, type_)
+) -> ChangeView:
     if op == "create":
         obj = body or {}
         title = await labeler.name(type_, obj) or "(no name)"
-        return [f"Add {noun}: {title}", *await create_lines(labeler, type_, obj)]
+        return ChangeView(
+            op, type_, title, tuple(await create_details(labeler, type_, obj))
+        )
     obj = current or {}
     title = await labeler.name(type_, obj) or str(obj.get("gramps_id") or "?")
     ident = obj.get("gramps_id")
     if ident and str(ident) not in title:
         title = f"{title} ({ident})"
     if op == "delete":
-        return [f"Delete {noun}: {title}"]
-    return [f"Edit {noun}: {title}", *await update_lines(labeler, obj, body or {})]
+        return ChangeView(op, type_, title)
+    return ChangeView(
+        op, type_, title, tuple(await update_details(labeler, obj, body or {}))
+    )

@@ -57,6 +57,12 @@ the model and the tree. It does not help a client that declares the support but
 answers without showing anything to the user: that answer is a refusal in both
 modes. See [Tools and resources](tools.md#the-write-tool).
 
+## Preview card
+
+| Variable | Default | Description |
+|---|---|---|
+| `GRAMPS_MCP_UI` | unset | Set to `prefab` to add the `preview_changes` tool, a colour-coded card of the planned changes for clients that render MCP Apps. See [Tools and resources](tools.md#preview-card-experimental). |
+
 ## Logging
 
 | Variable | Default | Description |

@@ -138,6 +138,21 @@ The list lives in `EXCLUDED_ROUTE_PREFIXES` in `src/gramps_mcp/trees.py`; the re
 |---|---|
 | `gramps://goql-spec` | A guide to the Gramps Object Query Language ([the same text is here](goql.md)), so an agent can write a valid `where_expr` for the `post_<type>_query` tools before calling them. |
 
+## Preview card (experimental)
+
+With `GRAMPS_MCP_UI=prefab`, each tree also gets `preview_changes`. It takes the
+same operations as `apply_changes` and writes nothing. It shows the changes as a
+colour-coded card in clients that render MCP Apps: additions in green, edits in
+orange, deletions in red, an icon for the kind of object, and the old value
+struck through next to the new one.
+
+![The preview card: two additions, two edits, one deletion](../assets/preview-changes.png)
+
+A client that does not render MCP Apps gets the same summary as text, headed
+"Preview of N change(s). Nothing was written." Which clients render the card is
+up to them; this is only the preview, and `apply_changes` still asks for its
+confirmation as described above.
+
 ## Endpoint
 
 The server speaks MCP's streamable HTTP transport at `/mcp`. With Google
