@@ -442,3 +442,41 @@ async def test_with_several_trees_the_button_applies_to_its_own_tree(monkeypatch
 
     assert not result.is_error
     assert writes(gramps["tree-b"]) and not writes(gramps["tree-a"])
+
+
+async def test_a_birth_place_made_for_it_is_ticked_with_it_and_can_be_left_out(
+    monkeypatch,
+):
+    gramps, server = make(monkeypatch)
+    operations = [
+        {
+            "op": "create",
+            "type": "people",
+            "object": {
+                "handle": "p",
+                "primary_name": {"first_name": "Marie"},
+                "event_ref_list": [{"ref": "b"}],
+            },
+        },
+        {
+            "op": "create",
+            "type": "events",
+            "object": {"handle": "b", "type": "Birth", "place": "sp"},
+        },
+        {
+            "op": "create",
+            "type": "places",
+            "object": {"handle": "sp", "name": {"value": "São Paulo, Brésil"}},
+        },
+    ]
+    card = (await show_card(server, operations)).structured_content
+    sets = on_change(card, 3)
+    assert sets[1]["s2"] == "{{ s2 && $event }}"  # unticking the birth: its place goes
+    # ticking the place ticks what it hangs under: the birth, and the person
+    assert set(sets[2]) == {"s0", "s1", "s2"}
+    assert sets[2]["s1"] == "{{ s1 || $event }}"
+
+    # the place alone is left out: the birth is created without one
+    outcome = await confirm(server, card, {"0": True, "1": True, "2": False})
+    assert outcome.status == "applied" and len(outcome.applied) == 2
+    assert gramps.objects["b"]["place"] == "" and "sp" not in gramps.objects

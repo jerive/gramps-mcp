@@ -198,3 +198,45 @@ def test_a_birth_added_to_an_existing_person_belongs_to_that_edit():
     assert requires == [{1}, set()]  # untick the edit: the birth goes
     assert required_by == [set(), {0}]  # untick the birth: the edit stays
     assert drop_unselected_links(ops, {1})[1] == {"handle": "jer", "event_ref_list": []}
+
+
+# A person, their birth, and the place of the birth, all new.
+WITH_PLACE = [
+    ("create", {"handle": "p", "event_ref_list": [{"ref": "b"}]}),
+    ("create", {"handle": "b", "type": "Birth", "place": "sp"}),
+    ("create", {"handle": "sp", "name": {"value": "São Paulo, Brésil"}}),
+]
+
+
+def test_a_place_made_for_one_event_hangs_under_it_and_goes_with_it():
+    direct = direct_requirements(WITH_PLACE)
+    assert direct == [set(), {0}, {1}]
+    assert outline(direct) == [(0, [(1, [(2, [])])])]  # person > birth > place
+    requires, required_by = closure(direct)
+    assert required_by[1] == {2}  # untick the birth: its place goes
+    assert required_by[2] == set()  # untick the place: the birth stays
+
+
+def test_a_place_that_two_events_use_stands_alone():
+    ops = [
+        ("create", {"handle": "p", "event_ref_list": [{"ref": "b"}, {"ref": "d"}]}),
+        ("create", {"handle": "b", "type": "Birth", "place": "sp"}),
+        ("create", {"handle": "d", "type": "Death", "place": "sp"}),
+        ("create", {"handle": "sp", "name": {"value": "São Paulo, Brésil"}}),
+    ]
+    direct = direct_requirements(ops)
+    assert direct[3] == set()
+    assert outline(direct) == [(0, [(1, []), (2, [])]), (3, [])]
+    # unticking the place leaves both events, without a place
+    bodies = drop_unselected_links(ops, {0, 1, 2})
+    assert bodies[1] == {"handle": "b", "type": "Birth", "place": ""}
+    assert bodies[2] == {"handle": "d", "type": "Death", "place": ""}
+
+
+def test_a_place_that_an_owner_lists_is_not_taken_for_its_user():
+    # a note belongs to the person that lists it, whatever else mentions it
+    ops = [
+        ("create", {"handle": "p", "note_list": ["n"]}),
+        ("create", {"handle": "n", "text": {}}),
+    ]
+    assert direct_requirements(ops) == [set(), {0}]
