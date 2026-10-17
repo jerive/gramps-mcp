@@ -7,7 +7,7 @@ repository is a ready-to-copy template.
 
 | Variable | Description |
 |---|---|
-| `GRAMPS_MCP_TREES` | Comma-separated names of the trees to mount, e.g. `Example,Family`. |
+| `GRAMPS_MCP_TREES` | Comma-separated names of the trees, e.g. `Example,Family`. A tree's id in the tools is its name in lower case. |
 | `GRAMPS_MCP_TREE_<NAME>_USERNAME` | Gramps Web username for that tree. |
 | `GRAMPS_MCP_TREE_<NAME>_PASSWORD` | Gramps Web password for that tree. |
 
@@ -62,7 +62,7 @@ modes. See [Tools and resources](tools.md#the-write-tool).
 
 | Variable | Default | Description |
 |---|---|---|
-| `GRAMPS_MCP_READ_TOOLS` | `core` | `core`: the eight read tools described in [Tools](tools.md#read-tools). `all`: every read route of the backend as its own tool. |
+| `GRAMPS_MCP_READ_TOOLS` | `core` | `core`: the eight read tools (shared by all trees) described in [Tools](tools.md#read-tools). `all`: every read route of the backend as its own tool. |
 | `GRAMPS_MCP_UI` | unset | `prefab`: colour-coded cards for clients that render MCP Apps: `apply_changes` shows an [interactive card](tools.md#interactive-card-experimental) (untick changes, fix a name, apply). `prefab-always`: the card for every client; one that cannot render it writes nothing. Unset: text only. |
 
 ## Logging

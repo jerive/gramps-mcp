@@ -165,7 +165,7 @@ async def main():
         print(f"{len(tools)} tools available, for example:")
         for tool in tools[:3]:
             print(" -", tool.name)
-        result = await client.call_tool("tree-example_list_objects", {"object_type": "people", "page": 1, "pagesize": 2})
+        result = await client.call_tool("list_objects", {"object_type": "people", "page": 1, "pagesize": 2})
         print(result.content[0].text[:400])
 
 asyncio.run(main())
@@ -174,7 +174,7 @@ PY
 
 You'll see the number of generated tools, three of their names, and the start
 of the JSON for two people from the example tree. Every endpoint of the Gramps
-Web API has become an MCP tool, namespaced by tree (`tree-example_...`), and
+Web API has become an MCP tool, taking the tree it is for (`example`), and
 this call went through the whole chain: MCP client, `gramps-mcp`, Gramps Web
 API, the tree.
 

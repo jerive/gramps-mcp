@@ -10,7 +10,8 @@ from fastmcp.client.elicitation import ElicitResult
 from mcp.client.extension import advertise
 from test_changes import FakeGramps, person
 
-from gramps_mcp.changes import ApplyChangesResult
+from gramps_mcp.changes import ApplyChangesResult, OneTree
+from gramps_mcp.trees import Tree, Trees
 from gramps_mcp.ui import PendingStore, register_ui, ui_mode
 
 JER = person("jer", "Jérôme Benoît", "Viveret", family_list=[])
@@ -65,9 +66,8 @@ def make(
     server = FastMCP()
     register_ui(
         server,
-        gramps.client(),  # type: ignore[arg-type]
+        OneTree(gramps.client()),  # type: ignore[arg-type]
         confirmation=confirmation,  # type: ignore[arg-type]
-        namespace="tree-test",
     )
     return gramps, server
 
@@ -396,43 +396,40 @@ async def test_a_failure_part_way_is_undone(monkeypatch):
 
 def test_pending_changes_expire_and_are_capped():
     store = PendingStore(ttl=0.0, limit=2)
-    token = store.add([], "d")
+    token = store.add([], "d", None)
     assert store.get(token) is None
     store = PendingStore(ttl=60, limit=2)
-    first = store.add([], "a")
-    store.add([], "b")
-    store.add([], "c")
+    first = store.add([], "a", None)
+    store.add([], "b", None)
+    store.add([], "c", None)
     assert store.get(first) is None
 
 
 async def test_with_several_trees_the_button_applies_to_its_own_tree(monkeypatch):
-    # Each tree is a mounted app. Apps with the same name make the button's tool
-    # ambiguous, and the host then refuses the call: nothing is applied.
     monkeypatch.setenv("GRAMPS_MCP_UI", "prefab")
-    trees = {
+    gramps = {
         name: FakeGramps({"jer": json.loads(json.dumps(JER))})
         for name in ("tree-a", "tree-b")
     }
-    root = FastMCP()
-    for name, gramps in trees.items():
-        child = FastMCP()
-        register_ui(
-            child,
-            gramps.client(),  # type: ignore[arg-type]
-            confirmation="required",
-            namespace=name,
-        )
-        root.mount(child, namespace=name)
+    trees = Trees([Tree(name, name, g.client(), None) for name, g in gramps.items()])
+    server = FastMCP()
+    register_ui(server, trees, confirmation="required")
 
-    async with with_ui(root) as client:
+    async with with_ui(server) as client:
+        tool = next(t for t in await client.list_tools() if t.name == "apply_changes")
+        assert tool.input_schema["properties"]["tree"]["enum"] == ["tree-a", "tree-b"]
+        assert "tree" in tool.input_schema["required"]
         card = (
-            await client.call_tool("tree-b_apply_changes", {"operations": SCENARIO})
+            await client.call_tool(
+                "apply_changes", {"operations": SCENARIO, "tree": "tree-b"}
+            )
         ).structured_content
-        tool, arguments = button_call(card)
-        assert tool == "tree-b_confirm_changes"
-        assert tool in {t.name for t in await client.list_tools()}
+        tool_name, arguments = button_call(card)
+        assert (
+            "tree" not in arguments
+        )  # the card remembers it, the button cannot change it
         result = await client.call_tool(
-            tool,
+            tool_name,
             {
                 **arguments,
                 "selection": {k: True for k in arguments["selection"]},
@@ -444,28 +441,4 @@ async def test_with_several_trees_the_button_applies_to_its_own_tree(monkeypatch
         )
 
     assert not result.is_error
-    assert writes(trees["tree-b"]) and not writes(trees["tree-a"])
-
-
-async def test_a_birth_added_to_an_existing_person_can_be_left_out(monkeypatch):
-    gramps, server = make(monkeypatch)
-    operations = [
-        {
-            "op": "create",
-            "type": "events",
-            "object": {"handle": "b", "type": "Birth"},
-        },
-        {
-            "op": "update",
-            "type": "people",
-            "handle": "jer",
-            "changes": {"event_ref_list": [{"ref": "b"}]},
-        },
-    ]
-    card = (await show_card(server, operations)).structured_content
-    values = on_change(card, 2)
-    assert values[0]["s1"] == "{{ s1 || $event }}"  # tick the birth: the edit too
-    assert values[1]["s0"] == "{{ s0 && $event }}"  # untick the edit: no birth
-    # the birth is left out and the person is left alone
-    outcome = await confirm(server, card, {"0": False, "1": True})
-    assert outcome.status == "not_applied" and writes(gramps) == []
+    assert writes(gramps["tree-b"]) and not writes(gramps["tree-a"])

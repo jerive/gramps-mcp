@@ -185,15 +185,37 @@ def collapse_object_routes(
     return result
 
 
+TREE_PARAM = "tree"
+
+
+def add_tree_parameter(spec: dict[str, Any], tree_ids: list[str]) -> dict[str, Any]:
+    """A copy of `spec` where every operation takes the `tree` it is for. It is
+    required, unless there is a single tree. The server removes it from the
+    request: Gramps never sees it."""
+    result = copy.deepcopy(spec)
+    parameter: dict[str, Any] = {
+        "name": TREE_PARAM,
+        "in": "query",
+        "required": len(tree_ids) > 1,
+        "description": "The tree to read. See list_trees.",
+        "schema": {"type": "string", "enum": list(tree_ids)},
+    }
+    for item in result.get("paths", {}).values():
+        for method, operation in item.items():
+            if method in _METHODS and isinstance(operation, dict):
+                operation["parameters"] = [*operation.get("parameters", []), parameter]
+    return result
+
+
 def prepare_spec(
     spec: dict[str, Any],
     mode: Literal["core", "all"],
     object_types: tuple[str, ...],
+    tree_ids: list[str],
 ) -> dict[str, Any]:
     check_api_version(spec)
-    if mode == "all":
-        return spec
-    return collapse_object_routes(spec, object_types)
+    prepared = spec if mode == "all" else collapse_object_routes(spec, object_types)
+    return add_tree_parameter(prepared, tree_ids)
 
 
 # Computed by the server, never written by a client.

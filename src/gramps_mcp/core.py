@@ -15,7 +15,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx2
-from fastmcp.server.auth import AuthCheck, AuthContext
+from fastmcp.server.auth import AccessToken, AuthCheck, AuthContext
 from fastmcp.server.auth.providers.google import GoogleProvider
 from key_value.aio.stores.redis import RedisStore
 from tenacity import (
@@ -306,19 +306,32 @@ def get_tree_member_emails(
         return _TREE_EMAILS_CACHE.get(project, (0.0, set()))[1]
 
 
-def require_tree_member(project: str, get_bearer_token: Callable[[], str]) -> AuthCheck:
-    """AuthCheck granting access to admins and Gramps users registered on this tree."""
+def is_tree_member(
+    project: str, get_bearer_token: Callable[[], str]
+) -> Callable[[AccessToken | None], bool]:
+    """Whether a token belongs to an admin or to a Gramps user registered on this
+    tree."""
 
-    def _check(ctx: AuthContext) -> bool:
-        if ctx.token is None:
+    def _is_member(token: AccessToken | None) -> bool:
+        if token is None:
             return False
-        email = ctx.token.claims.get("email")
+        email = token.claims.get("email")
         if not isinstance(email, str) or not email.strip():
             return True
         email = email.strip().lower()
         return email in ADMIN_EMAILS or email in get_tree_member_emails(
             project, get_bearer_token
         )
+
+    return _is_member
+
+
+def require_tree_member(project: str, get_bearer_token: Callable[[], str]) -> AuthCheck:
+    """AuthCheck granting access to admins and Gramps users registered on this tree."""
+    is_member = is_tree_member(project, get_bearer_token)
+
+    def _check(ctx: AuthContext) -> bool:
+        return is_member(ctx.token)
 
     return _check
 

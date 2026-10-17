@@ -12,8 +12,8 @@ dictate a change to an assistant in any other MCP-backed app.
 
 It works by pointing [FastMCP](https://gofastmcp.com/)'s
 `FastMCP.from_openapi()` at your Gramps Web API instance's `openapi.json` and
-auto-generating the read tools from the REST endpoints, mounting one sub-server
-per configured tree behind optional Google OAuth and a per-tree membership
+auto-generating the read tools from the REST endpoints, giving one set of tools for
+all the configured trees behind optional Google OAuth and a per-tree membership
 check. Writing goes through a single tool, `apply_changes`, which shows every
 change to the user and writes only once they confirm.
 
