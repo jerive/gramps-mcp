@@ -124,19 +124,29 @@ def edit_fields(
     return fields
 
 
-# In a created object, these lists only record a link that the other side owns,
+# Gramps records some links on both sides, or on the side of the owner only, and
+# going by the handles a body mentions would make every change need every other
+# (family -> child -> family: unticking the child would drop its mother).
+#
+# In a created object these lists only record a link that the other side owns,
 # so they do not make it need what they mention: a family lists its children,
-# and a person lists the families they head. Without that the links form a loop
-# (family -> child -> family) and unticking the child would drop its mother.
-# The family needs its parents and a child needs its family; a child that is
-# unticked is simply left out of the family. See `drop_unselected_links`.
+# and a person lists the families they head. The family needs its parents and a
+# child needs its family.
 LINK_LISTS: dict[str, tuple[str, ...]] = {
     "people": ("family_list",),
     "families": ("child_ref_list",),
 }
+# In a created or edited object, these lists name what belongs to it. The owner
+# does not need them, but a created event needs its owner: unticking the person
+# unticks their birth, unticking the birth leaves the person without it.
+OWNED_LISTS: dict[str, tuple[str, ...]] = {
+    "people": ("event_ref_list",),
+    "families": ("event_ref_list",),
+}
+Ops = list[tuple[str, str, JsonObject | None]]
 
 
-def _created_handles(ops: list[tuple[str, str, JsonObject | None]]) -> dict[str, int]:
+def _created_handles(ops: Ops) -> dict[str, int]:
     return {
         str(body["handle"]): index
         for index, (op, _, body) in enumerate(ops)
@@ -144,18 +154,33 @@ def _created_handles(ops: list[tuple[str, str, JsonObject | None]]) -> dict[str,
     }
 
 
-def direct_requirements(
-    ops: list[tuple[str, str, JsonObject | None]],
-) -> list[set[int]]:
+def _soft_lists(op: str, type_: str) -> tuple[str, ...]:
+    links = LINK_LISTS.get(type_, ()) if op == "create" else ()
+    owned = OWNED_LISTS.get(type_, ()) if op in ("create", "update") else ()
+    return links + owned
+
+
+def _refs(entries: Any) -> list[str]:
+    if not isinstance(entries, list):
+        return []
+    return [
+        str(ref)
+        for e in entries
+        if (ref := e.get("ref") if isinstance(e, dict) else e) is not None
+    ]
+
+
+def direct_requirements(ops: Ops) -> list[set[int]]:
     """Per change, the changes whose created handle it needs: those it mentions,
-    except in the link lists of a created object."""
+    except in its link lists, plus the owner of each created thing it is listed
+    in."""
     created = _created_handles(ops)
     requirements: list[set[int]] = []
     for index, (op, type_, body) in enumerate(ops):
-        links = LINK_LISTS.get(type_, ()) if op == "create" else ()
+        soft = _soft_lists(op, type_)
         text = (
             json.dumps(
-                {k: v for k, v in body.items() if k not in links}, ensure_ascii=False
+                {k: v for k, v in body.items() if k not in soft}, ensure_ascii=False
             )
             if body
             else ""
@@ -163,24 +188,30 @@ def direct_requirements(
         requirements.append(
             {j for handle, j in created.items() if j != index and f'"{handle}"' in text}
         )
+    for index, (op, type_, body) in enumerate(ops):
+        if not body or op not in ("create", "update"):
+            continue
+        for key in OWNED_LISTS.get(type_, ()):
+            for ref in _refs(body.get(key)):
+                owned = created.get(ref)
+                if owned is not None and owned != index:
+                    requirements[owned].add(index)
     return requirements
 
 
-def drop_unselected_links(
-    ops: list[tuple[str, str, JsonObject | None]], chosen: set[int]
-) -> list[JsonObject | None]:
-    """The bodies to send: a chosen, created object no longer lists the links to
-    created objects that were unticked. Returns the bodies in the same order."""
+def drop_unselected_links(ops: Ops, chosen: set[int]) -> list[JsonObject | None]:
+    """The bodies to send: a chosen object no longer lists the links to created
+    objects that were unticked. Returns the bodies in the same order."""
     created = _created_handles(ops)
     left_out = {handle for handle, index in created.items() if index not in chosen}
     bodies: list[JsonObject | None] = []
     for index, (op, type_, body) in enumerate(ops):
-        links = LINK_LISTS.get(type_, ()) if op == "create" else ()
-        if body is None or index not in chosen or not links or not left_out:
+        lists = _soft_lists(op, type_)
+        if body is None or index not in chosen or not lists or not left_out:
             bodies.append(body)
             continue
         kept = dict(body)
-        for key in links:
+        for key in lists:
             entries = kept.get(key)
             if isinstance(entries, list):
                 kept[key] = [

@@ -178,7 +178,9 @@ clients that render MCP Apps, instead of asking for a confirmation:
   child needs its family, so unticking the mother unticks the family and the
   child. Unticking the child only leaves it out of the family, which is created
   without it; likewise a created person whose family is unticked is created
-  without that link.
+  without that link. An event belongs to the person or family that lists it:
+  unticking the person unticks their birth, and unticking the birth leaves the
+  person without it.
 
 ![The event is unticked, so everything that needs it is unticked too](../assets/interactive-card-cascade.png)
 

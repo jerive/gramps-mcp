@@ -20,8 +20,9 @@ PERSON = {
     "event_ref_list": [{"ref": "e6"}],
 }
 
-# The scenario of the screenshot: event, person (needs the event), family
-# (lists the person as a child), and the father's edit (needs the family).
+# The scenario of the screenshot: an event that belongs to the person, the person,
+# a family (that only lists the person as a child), and the father's edit (needs
+# the family).
 SCENARIO = [
     ("create", "events", {"handle": "e6", "type": "Birth"}),
     ("create", "people", PERSON),
@@ -47,14 +48,14 @@ FAMILY_OF_TWO = [
 
 
 def test_a_change_needs_the_changes_that_create_what_it_mentions():
-    # the family only lists its child, which is not a need
-    assert direct_requirements(SCENARIO) == [set(), {0}, set(), {2}, set()]
+    # the birth belongs to the person; the family only lists its child
+    assert direct_requirements(SCENARIO) == [{1}, set(), set(), {2}, set()]
 
 
 def test_dependencies_are_followed_all_the_way():
     requires, required_by = closure(direct_requirements(SCENARIO))
-    assert requires == [set(), {0}, set(), {2}, set()]
-    assert required_by == [{1}, set(), {3}, set(), set()]
+    assert requires == [{1}, set(), set(), {2}, set()]
+    assert required_by == [set(), {0}, {3}, set(), set()]
 
 
 def test_unticking_the_mother_drops_the_family_and_the_child_not_the_reverse():
@@ -100,7 +101,7 @@ def test_dependencies_must_not_loop_forever():
 def test_missing_requirements_names_each_gap():
     requires, _ = closure(direct_requirements(SCENARIO))
     assert missing_requirements({0, 1, 2, 3, 4}, requires) == []
-    assert missing_requirements({1, 3, 4}, requires) == [(1, 0), (3, 2)]
+    assert missing_requirements({0, 3, 4}, requires) == [(0, 1), (3, 2)]
     assert missing_requirements(set(), requires) == []
 
 
@@ -148,3 +149,15 @@ def test_edits_are_checked(bad):
 def test_a_good_edit_is_trimmed_and_may_have_accents_and_newlines_in_text():
     assert check_edit("  Jérôme Benoît ") == "Jérôme Benoît"
     assert check_edit("line one\nline two") == "line one\nline two"
+
+
+def test_a_birth_added_to_an_existing_person_belongs_to_that_edit():
+    ops = [
+        ("create", "events", {"handle": "b", "type": "Birth"}),
+        ("update", "people", {"handle": "jer", "event_ref_list": [{"ref": "b"}]}),
+    ]
+    requires, required_by = closure(direct_requirements(ops))
+    assert requires == [{1}, set()]  # untick the edit: the birth goes
+    assert required_by == [set(), {0}]  # untick the birth: the edit stays
+    bodies = drop_unselected_links(ops, {1})
+    assert bodies[1] == {"handle": "jer", "event_ref_list": []}

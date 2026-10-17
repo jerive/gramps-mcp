@@ -283,6 +283,14 @@ def build_interactive(planned: list[Planned], token: str) -> PrefabApp:
     return PrefabApp(view=view, state=state)
 
 
+def _unchanged(body: Any, current: Any) -> bool:
+    """Whether an edited body is the stored object again, an emptied list that
+    the stored object did not have counting as nothing."""
+    if not isinstance(body, dict) or not isinstance(current, dict):
+        return False
+    return {k: v for k, v in body.items() if v != [] or k in current} == current
+
+
 def _payload(card: PrefabApp, app_name: str) -> dict[str, Any]:
     """The card as the host receives it, with the button's tool call addressed
     to the tool this server lists under its own name."""
@@ -474,14 +482,21 @@ def register_ui(
             except EditError as exc:
                 return _refused("invalid", str(exc))
         links_dropped = False
-        for item, body in zip(
-            planned,
-            drop_unselected_links([(p.op, p.type, p.body) for p in planned], chosen),
-            strict=True,
+        emptied: set[int] = set()
+        for index, (item, body) in enumerate(
+            zip(
+                planned,
+                drop_unselected_links(
+                    [(p.op, p.type, p.body) for p in planned], chosen
+                ),
+                strict=True,
+            )
         ):
             if body is not item.body:
                 item.body = body
                 links_dropped = True
+                if item.op == "update" and _unchanged(body, item.current):
+                    emptied.add(index)  # its only change was a link left out
         if applied_edits or links_dropped:
             await describe_all(client, planned)
 
@@ -492,7 +507,12 @@ def register_ui(
             applied_edits,
         )
         store.discard(token)
-        result = await execute(client, [planned[i] for i in sorted(chosen)])
+        todo = [planned[i] for i in sorted(chosen - emptied)]
+        if not todo:
+            return _refused(
+                "not_applied", "Nothing is left to apply, so nothing was written."
+            )
+        result = await execute(client, todo)
         return _outcome(result)
 
     server.add_provider(app)

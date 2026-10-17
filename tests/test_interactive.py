@@ -181,8 +181,10 @@ async def test_boxes_follow_each_other_through_their_dependencies(monkeypatch):
 
     # each box first writes its own value (Prefab does not once there is an
     # on_change), then unticking unticks what needs it, ticking ticks what it needs
-    assert sets(boxes[0]) == {"s0": "{{ $event }}", "s1": "{{ s1 && $event }}"}
-    assert sets(boxes[1]) == {"s1": "{{ $event }}", "s0": "{{ s0 || $event }}"}
+    # the birth belongs to the person: unticking the person unticks the birth,
+    # unticking the birth leaves the person
+    assert sets(boxes[0]) == {"s0": "{{ $event }}", "s1": "{{ s1 || $event }}"}
+    assert sets(boxes[1]) == {"s1": "{{ $event }}", "s0": "{{ s0 && $event }}"}
     # the family only lists its child: neither box drags the other along
     assert sets(boxes[2]) == {"s2": "{{ $event }}", "s3": "{{ s3 && $event }}"}
     assert sets(boxes[3]) == {"s3": "{{ $event }}", "s2": "{{ s2 || $event }}"}
@@ -273,6 +275,17 @@ async def test_apply_writes_what_the_card_sends_in_order(monkeypatch):
     assert gramps.objects["jer"]["family_list"] == ["f8"]
 
 
+async def test_a_birth_left_out_leaves_the_person_without_it(monkeypatch):
+    gramps, server = make(monkeypatch)
+    card = (await show_card(server)).structured_content
+    outcome = await confirm(
+        server, card, {"0": False, "1": True, "2": False, "3": False}
+    )
+    assert outcome.status == "applied" and len(outcome.applied) == 1
+    assert gramps.objects["p7"]["event_ref_list"] == []
+    assert "e6" not in gramps.objects
+
+
 async def test_only_the_selected_changes_are_written(monkeypatch):
     gramps, server = make(monkeypatch)
     card = (await show_card(server)).structured_content
@@ -290,10 +303,10 @@ async def test_a_change_without_what_it_needs_is_refused_and_nothing_is_written(
     gramps, server = make(monkeypatch)
     card = (await show_card(server)).structured_content
     outcome = await confirm(
-        server, card, {"0": False, "1": True, "2": False, "3": False}
+        server, card, {"0": True, "1": False, "2": False, "3": False}
     )
     assert outcome.status == "invalid"
-    assert "Change 2 needs change 1" in outcome.message
+    assert "Change 1 needs change 2" in outcome.message
     assert writes(gramps) == []
 
 
@@ -319,7 +332,7 @@ async def test_a_fixed_name_is_what_gets_written(monkeypatch):
 async def test_an_edit_of_an_unselected_change_is_ignored(monkeypatch):
     gramps, server = make(monkeypatch)
     card = (await show_card(server)).structured_content
-    selection = {"0": True, "1": False, "2": False, "3": False}
+    selection = {"0": False, "1": False, "2": True, "3": False}
     outcome = await confirm(server, card, selection, edits={"ed1": "Ignored"})
     assert outcome.status == "applied"
     assert "p7" not in gramps.objects
@@ -430,3 +443,28 @@ async def test_with_several_trees_the_button_applies_to_its_own_tree(monkeypatch
 
     assert not result.is_error
     assert writes(trees["tree-b"]) and not writes(trees["tree-a"])
+
+
+async def test_a_birth_added_to_an_existing_person_can_be_left_out(monkeypatch):
+    gramps, server = make(monkeypatch)
+    operations = [
+        {
+            "op": "create",
+            "type": "events",
+            "object": {"handle": "b", "type": "Birth"},
+        },
+        {
+            "op": "update",
+            "type": "people",
+            "handle": "jer",
+            "changes": {"event_ref_list": [{"ref": "b"}]},
+        },
+    ]
+    card = (await show_card(server, operations)).structured_content
+    boxes = find(card, "type", "Checkbox")
+    values = [{a["key"]: a["value"] for a in b["onChange"]} for b in boxes]
+    assert values[0]["s1"] == "{{ s1 || $event }}"  # tick the birth: the edit too
+    assert values[1]["s0"] == "{{ s0 && $event }}"  # untick the edit: no birth
+    # the birth is left out and the person is left alone
+    outcome = await confirm(server, card, {"0": False, "1": True})
+    assert outcome.status == "not_applied" and writes(gramps) == []
