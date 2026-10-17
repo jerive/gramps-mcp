@@ -20,6 +20,7 @@ from .core import (
     require_tree_member,
     start_token_refresh_loop,
 )
+from .ui import register_preview, ui_enabled
 
 # Route prefixes excluded from every tree's generated MCP tool set: either
 # not useful to an agent (server config, OIDC config), redundant with the
@@ -135,4 +136,6 @@ def mount_tree(project: str, openapi_spec: dict[str, Any], mcp: FastMCP) -> None
         mcp_component_fn=customize_component,
     )
     register_apply_changes(child, client, auth=tree_check)
+    if ui_enabled():
+        register_preview(child, client, auth=tree_check)
     mcp.mount(child, namespace=f"tree-{project.lower()}")

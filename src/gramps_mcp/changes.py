@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
 import httpx2
@@ -38,7 +38,7 @@ from pydantic import (
 )
 
 from .core import logger
-from .summary import Labeler, describe_operation
+from .summary import ChangeView, Labeler, view_operation
 
 MAX_OPERATIONS = 20
 MAX_VALUE_CHARS = 60
@@ -233,7 +233,11 @@ class Planned:
     path: str
     body: JsonObject | None
     current: JsonObject | None = None
-    lines: list[str] = field(default_factory=list)
+    view: ChangeView | None = None
+
+    @property
+    def lines(self) -> list[str]:
+        return self.view.lines() if self.view is not None else []
 
     def summary(self, handle: str | None = None) -> ChangeSummary:
         return ChangeSummary(
@@ -256,8 +260,8 @@ def merge_changes(current: JsonObject, changes: JsonObject) -> JsonObject:
     return merged
 
 
-def format_confirmation(planned: list[Planned]) -> str:
-    lines = [f"Apply these {len(planned)} change(s) to the tree?"]
+def format_confirmation(planned: list[Planned], header: str | None = None) -> str:
+    lines = [header or f"Apply these {len(planned)} change(s) to the tree?"]
     for index, item in enumerate(planned, start=1):
         first, *rest = item.lines
         lines.append(f"{index}. {first}")
@@ -315,7 +319,7 @@ async def plan(
     }
     labeler = Labeler(client, created)
     for item in planned:
-        item.lines = await describe_operation(
+        item.view = await view_operation(
             labeler, item.op, item.type, item.body, item.current
         )
     return planned
