@@ -165,7 +165,7 @@ async def main():
         print(f"{len(tools)} tools available, for example:")
         for tool in tools[:3]:
             print(" -", tool.name)
-        result = await client.call_tool("tree-example_get_people", {"page": 1, "pagesize": 2})
+        result = await client.call_tool("tree-example_list_objects", {"object_type": "people", "page": 1, "pagesize": 2})
         print(result.content[0].text[:400])
 
 asyncio.run(main())

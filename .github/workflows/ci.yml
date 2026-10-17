@@ -5,6 +5,9 @@ on:
     branches: [master]
   pull_request:
   workflow_call:
+  # New Gramps Web API releases are picked up by the `latest` integration run.
+  schedule:
+    - cron: "0 6 * * 1"
 
 jobs:
   test:
@@ -30,6 +33,17 @@ jobs:
         run: uv run pytest -q
 
   integration:
+    name: integration (Gramps Web API ${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest version gramps_mcp.spec.MIN_API_VERSION allows...
+          - label: minimum
+            requirement: "gramps_webapi==3.23.0"
+          # ...and whatever is newest on PyPI.
+          - label: latest
+            requirement: "gramps_webapi"
     # Boots a throwaway Gramps Web API instance from Gramps' bundled example
     # tree and runs the real MCP server against it. These are the same steps
     # as docs/tutorial.md -- keep the two in sync.
@@ -53,7 +67,7 @@ jobs:
       - name: Install Gramps and Gramps Web API
         run: |
           python3 -m venv --system-site-packages /tmp/gramps-venv
-          /tmp/gramps-venv/bin/pip install --quiet gramps gramps_webapi
+          /tmp/gramps-venv/bin/pip install --quiet gramps "${{ matrix.requirement }}"
 
       - name: Import the example tree
         run: |

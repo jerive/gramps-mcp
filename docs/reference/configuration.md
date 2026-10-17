@@ -62,6 +62,7 @@ modes. See [Tools and resources](tools.md#the-write-tool).
 
 | Variable | Default | Description |
 |---|---|---|
+| `GRAMPS_MCP_READ_TOOLS` | `core` | `core`: the eight read tools described in [Tools](tools.md#read-tools). `all`: every read route of the backend as its own tool. |
 | `GRAMPS_MCP_UI` | unset | `prefab`: colour-coded cards for clients that render MCP Apps: `apply_changes` shows an [interactive card](tools.md#interactive-card-experimental) (untick changes, fix a name, apply) and `preview_changes` shows a read-only one. `prefab-always`: the card for every client; one that cannot render it writes nothing. Unset: text only. |
 
 ## Logging

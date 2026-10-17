@@ -2,21 +2,41 @@
 
 ## Read tools
 
-For every tree in `GRAMPS_MCP_TREES`, the server downloads that Gramps Web API
-instance's `openapi.json` and generates one MCP tool for each **read**
-operation: every `GET`, and the `POST .../query/` searches, which take their
-criteria in the body. Tools are mounted under a per-tree namespace:
+For every tree in `GRAMPS_MCP_TREES`, the server reads that Gramps Web API
+instance's `openapi.json` at startup and generates the read tools from it.
+Tools are mounted under a per-tree namespace, `tree-<name>_<tool>`. Eight read
+tools are exposed:
 
-```
-tree-<name>_<operationId>
-```
+| Tool | Reads |
+|---|---|
+| `list_objects` | A page of objects of one type, with filters, sorting and the `profile`/`extend` options. |
+| `get_object` | One object of any type, from its handle. |
+| `query_objects` | Objects of one type matched by a [GOQL](goql.md) `where_expr`, with `select`, `order_by`, `limit` and `count`. |
+| `get_search` | Full-text search across all types. |
+| `get_relation`, `get_relations` | How two people are related, and every way they are. |
+| `get_person_timeline`, `get_family_timeline` | The events around a person or a family. |
 
-For a tree named `example`, the operation `get_people` becomes
-`tree-example_get_people`. Every operation has its own `operationId` in Gramps
-Web API's OpenAPI document, so the names are stable and predictable.
+`list_objects`, `get_object` and `query_objects` take an `object_type`
+(`people`, `families`, `events`, `places`, `citations`, `sources`,
+`repositories`, `notes`, `tags`, `media`). Gramps Web API defines the same
+operation for each type, so the server merges them instead of listing ten
+copies of each: the three tools cost about as much context as one set. Their
+parameters, descriptions and types are those of the backend's spec. If a type's
+operation ever differs from the others in a future Gramps version, that type
+keeps its own tools.
 
-The tool list follows whichever Gramps Web API version you run. If the backend
-adds a read endpoint, it shows up after the next restart.
+Reports, exports, imports, media files and thumbnails, DNA, tree administration
+and the like are not exposed. `GRAMPS_MCP_READ_TOOLS=all` exposes every read
+route of the backend as its own tool (about 90 per tree).
+
+### Gramps Web API version
+
+The tools follow the Gramps Web API you run: nothing about its schema is copied
+into this package. At startup the server checks the version in the backend's
+spec. It refuses to start below 3.23 (when GOQL's `MatchesQuery` arrived) and
+logs a warning above the newest version it is tested with, so a newer backend is
+used rather than refused. The test suite runs against the minimum and the
+latest published version.
 
 No generated tool writes. Every other `POST`, `PUT`, `PATCH` and `DELETE`
 (including `merge`, the bulk `objects` endpoints, `transactions` and `chat`) is
@@ -140,7 +160,7 @@ The list lives in `EXCLUDED_ROUTE_PREFIXES` in `src/gramps_mcp/trees.py`; the re
 
 | URI | Content |
 |---|---|
-| `gramps://goql-spec` | A guide to the Gramps Object Query Language ([the same text is here](goql.md)), so an agent can write a valid `where_expr` for the `post_<type>_query` tools before calling them. |
+| `gramps://goql-spec` | A guide to the Gramps Object Query Language ([the same text is here](goql.md)), so an agent can write a valid `where_expr` for `query_objects` before calling them. |
 
 ## Interactive card (experimental)
 

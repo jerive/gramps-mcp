@@ -21,6 +21,7 @@ from .core import (
     require_tree_member,
     start_token_refresh_loop,
 )
+from .spec import prepare_spec
 from .ui import register_ui, ui_enabled
 
 # The read tools of a tree: the business objects, and a few ways to find and
@@ -39,7 +40,8 @@ OBJECT_TYPES = (
     "tags",
     "media",
 )
-_TYPES = "|".join(OBJECT_TYPES)
+# `{object_type}` is the generic path spec.py makes out of the per-type ones.
+_TYPES = "|".join((*OBJECT_TYPES, r"\{object_type\}"))
 _PARAM = r"\{[^/{}]+\}"
 CORE_READ_ROUTES = tuple(
     (method, re.compile(pattern))
@@ -182,7 +184,7 @@ def mount_tree(project: str, openapi_spec: dict[str, Any], mcp: FastMCP) -> None
             component.output_schema = None
 
     child = FastMCP.from_openapi(
-        openapi_spec=openapi_spec,
+        openapi_spec=prepare_spec(openapi_spec, read_tools_mode(), OBJECT_TYPES),
         client=client,
         name=f"Tree {project}",
         route_map_fn=map_route,

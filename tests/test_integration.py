@@ -12,6 +12,7 @@ has no Gramps Web API instance to talk to) doesn't try to run this.
 
 from __future__ import annotations
 
+import json
 import os
 
 import pytest
@@ -23,28 +24,41 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-async def test_mounted_tree_exposes_people_tools():
+async def test_mounted_tree_exposes_the_read_tools():
     from gramps_mcp.server import mcp
 
     async with Client(mcp) as client:
         tools = await client.list_tools()
         tool_names = {t.name for t in tools}
 
-    assert tool_names, "expected at least one generated tool, got none"
-    get_people_tools = [name for name in tool_names if name.endswith("_get_people")]
-    assert get_people_tools, f"no *_get_people tool in {sorted(tool_names)}"
+    for tool in ("list_objects", "get_object", "query_objects", "get_search"):
+        assert any(n.endswith(f"_{tool}") for n in tool_names), sorted(tool_names)
 
 
-async def test_get_people_returns_real_data():
+async def test_the_generic_tools_return_real_data():
     from gramps_mcp.server import mcp
 
     async with Client(mcp) as client:
-        tools = await client.list_tools()
-        (get_people_tool,) = [t.name for t in tools if t.name.endswith("_get_people")]
-        result = await client.call_tool(get_people_tool, {"page": 1, "pagesize": 2})
+        tools = {t.name.split("_", 1)[1]: t.name for t in await client.list_tools()}
+        listed = await client.call_tool(
+            tools["list_objects"], {"object_type": "people", "page": 1, "pagesize": 2}
+        )
+        handle = json.loads(listed.content[0].text)[0]["handle"]
+        one = await client.call_tool(
+            tools["get_object"], {"object_type": "people", "handle": handle}
+        )
+        found = await client.call_tool(
+            tools["query_objects"],
+            {
+                "object_type": "people",
+                "where_expr": "gender == Person.FEMALE",
+                "limit": 2,
+            },
+        )
 
-    assert result.content, "tool call returned no content"
-    assert not result.is_error, f"tool call failed: {result.content}"
+    for result in (listed, one, found):
+        assert result.content, "tool call returned no content"
+        assert not result.is_error, f"tool call failed: {result.content}"
 
 
 async def test_goql_guide_resource_is_published():

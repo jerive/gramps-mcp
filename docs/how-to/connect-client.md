@@ -42,5 +42,5 @@ the resulting token for you. See [Enable Google sign-in](google-oauth.md).
 
 The server publishes a `gramps://goql-spec` MCP resource with a guide to the
 Gramps Object Query Language, so an agent can look up the syntax before
-building a `where_expr` for a tree's `post_<type>_query` tools. The same text
+building a `where_expr` for a tree's `query_objects` tool. The same text
 is on the [GOQL page](../reference/goql.md).
