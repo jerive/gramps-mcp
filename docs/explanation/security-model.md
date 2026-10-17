@@ -38,7 +38,7 @@ What this means in practice:
 
 Two configurations exist, and they have very different threat models.
 
-### Unauthenticated (no Google credentials)
+### Unauthenticated (no Google credentials, or `GRAMPS_MCP_AUTH=off`)
 
 Anyone who can reach the port acts as the service account, with no check at
 all. This is meant for a single user on one machine, and the server should be

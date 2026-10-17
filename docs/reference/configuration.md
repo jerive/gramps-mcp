@@ -36,6 +36,7 @@ authentication on. Leave them unset for an unauthenticated server.
 
 | Variable | Default | Description |
 |---|---|---|
+| `GRAMPS_MCP_AUTH` | `auto` | `auto`: Google sign-in when both Google variables are set, none otherwise. `off`: no authentication, even if the Google variables are set (for example in a development shell that carries production credentials). Refused unless `MCP_BASE_URL` is `localhost`, `127.0.0.1` or `::1`. It does not change the interface the server listens on: bind `MCP_HOST=127.0.0.1` too. |
 | `GOOGLE_CLIENT_ID` | unset | OAuth client ID from the Google Cloud Console. |
 | `GOOGLE_CLIENT_SECRET` | unset | OAuth client secret. |
 | `MCP_GOOGLE_REDIRECT_PATH` | `/auth/callback` | Path appended to `MCP_BASE_URL` to form the redirect URI registered with Google. |
