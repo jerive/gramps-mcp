@@ -129,11 +129,11 @@ def test_ui_mode_from_the_environment(monkeypatch):
         assert ui_mode() == mode
 
 
-async def test_three_tools_and_the_confirmation_is_kept_from_the_model(monkeypatch):
+async def test_two_tools_and_the_confirmation_is_kept_from_the_model(monkeypatch):
     _, server = make(monkeypatch)
     async with with_ui(server) as client:
         tools = {t.name: t for t in await client.list_tools()}
-    assert set(tools) == {"preview_changes", "apply_changes", "confirm_changes"}
+    assert set(tools) == {"apply_changes", "confirm_changes"}
     assert tools["confirm_changes"].meta["ui"]["visibility"] == ["app"]
     assert tools["apply_changes"].meta["ui"]["visibility"] == ["model"]
 
