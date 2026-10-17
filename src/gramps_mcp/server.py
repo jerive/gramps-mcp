@@ -13,8 +13,8 @@ from .trees import mount_tree
 
 GOQL_SPEC_DESCRIPTION = (
     "Gramps Object Query Language (GOQL) guide. Read this before writing a "
-    "`where_expr` for the tree-scoped `post_<type>_query` tools, or a "
-    "`MatchesQuery` rule for the list tools."
+    "`where_expr` for the tree-scoped `query_objects` tool, or a "
+    "`MatchesQuery` rule for `list_objects`."
 )
 
 

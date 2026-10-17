@@ -14,7 +14,7 @@ for the `MatchesQuery` filter rule.
 
 ## Two ways to use it
 
-**1. The `post_<type>_query` tools** (for example `post_people_query`) take a
+**1. The `query_objects` tool** (with an `object_type` such as `people`) takes a
 JSON body. This is the better choice: it can return only the fields you ask
 for, sort, page and count.
 
@@ -39,8 +39,7 @@ for, sort, page and count.
 
 The response has `items` and, when there are more rows, `next_after`.
 
-**2. The `rules` parameter** of the list tools (`get_people`, `get_families`,
-...) accepts the same expression through the `MatchesQuery` rule:
+**2. The `rules` parameter** of `list_objects` accepts the same expression through the `MatchesQuery` rule:
 
 ```json
 {"rules": [{"name": "MatchesQuery", "values": ["gender == Person.MALE"]}]}

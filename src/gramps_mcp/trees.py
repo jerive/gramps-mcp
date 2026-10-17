@@ -4,7 +4,8 @@ openapi.json."""
 from __future__ import annotations
 
 import os
-from typing import Any
+import re
+from typing import Any, Literal
 
 import httpx2
 from fastmcp import FastMCP
@@ -20,12 +21,45 @@ from .core import (
     require_tree_member,
     start_token_refresh_loop,
 )
+from .spec import prepare_spec
 from .ui import register_ui, ui_enabled
 
-# Route prefixes excluded from every tree's generated MCP tool set: either
-# not useful to an agent (server config, OIDC config), redundant with the
-# auth this server already performs (token refresh, user listing), or
-# a surface better kept out of an LLM's hands (saved/custom filters).
+# The read tools of a tree: the business objects, and a few ways to find and
+# relate them. Everything else Gramps Web API offers (reports, exports, imports,
+# media files and thumbnails, DNA, OIDC, tasks, tree administration...) is left
+# out: each tool costs context in every tree, and an agent has no use for them.
+OBJECT_TYPES = (
+    "people",
+    "families",
+    "events",
+    "places",
+    "citations",
+    "sources",
+    "repositories",
+    "notes",
+    "tags",
+    "media",
+)
+# `{object_type}` is the generic path spec.py makes out of the per-type ones.
+_TYPES = "|".join((*OBJECT_TYPES, r"\{object_type\}"))
+_PARAM = r"\{[^/{}]+\}"
+CORE_READ_ROUTES = tuple(
+    (method, re.compile(pattern))
+    for method, pattern in (
+        ("GET", rf"^/api/({_TYPES})/$"),
+        ("GET", rf"^/api/({_TYPES})/{_PARAM}$"),
+        ("POST", rf"^/api/({_TYPES})/query/$"),
+        ("GET", r"^/api/search/$"),
+        ("GET", rf"^/api/relations/{_PARAM}/{_PARAM}$"),
+        ("GET", rf"^/api/relations/{_PARAM}/{_PARAM}/all$"),
+        ("GET", rf"^/api/(people|families)/{_PARAM}/timeline$"),
+    )
+)
+
+# With GRAMPS_MCP_READ_TOOLS=all, every read route except these prefixes: not
+# useful to an agent (server config, OIDC config), redundant with the auth this
+# server already performs (token refresh, user listing), or a surface better kept
+# out of an LLM's hands (saved/custom filters).
 EXCLUDED_ROUTE_PREFIXES = (
     "/api/filters/",
     "/api/token/",
@@ -35,6 +69,15 @@ EXCLUDED_ROUTE_PREFIXES = (
     "/api/config",
     "/api/oidc/config",
 )
+
+
+def read_tools_mode() -> Literal["core", "all"]:
+    value = os.environ.get("GRAMPS_MCP_READ_TOOLS", "core").strip().lower()
+    if value == "core":
+        return "core"
+    if value == "all":
+        return "all"
+    raise ValueError(f"GRAMPS_MCP_READ_TOOLS must be core or all, got {value!r}")
 
 
 def is_read_route(method: str, path: str) -> bool:
@@ -51,13 +94,25 @@ def is_read_route(method: str, path: str) -> bool:
     return method == "POST" and path.rstrip("/").endswith("/query")
 
 
+def is_core_read_route(method: str, path: str) -> bool:
+    method = method.upper()
+    return any(m == method and pattern.match(path) for m, pattern in CORE_READ_ROUTES)
+
+
+def is_exposed(method: str, path: str, mode: Literal["core", "all"]) -> bool:
+    """Whether a route becomes a tool. Writes never do: they go through
+    `apply_changes`."""
+    if not is_read_route(method, path):
+        return False
+    if mode == "core":
+        return is_core_read_route(method, path)
+    return not path.startswith(EXCLUDED_ROUTE_PREFIXES)
+
+
 def map_route(route: HTTPRoute, route_type: MCPType) -> MCPType:
-    """Keeps only the read routes; writes go through `apply_changes`."""
-    if route.path.startswith(EXCLUDED_ROUTE_PREFIXES) or route.path in ("/api/facts",):
-        return MCPType.EXCLUDE
-    if not is_read_route(route.method, route.path):
-        return MCPType.EXCLUDE
-    return route_type
+    if is_exposed(route.method, route.path, read_tools_mode()):
+        return route_type
+    return MCPType.EXCLUDE
 
 
 def _env_key(project: str) -> str:
@@ -129,7 +184,7 @@ def mount_tree(project: str, openapi_spec: dict[str, Any], mcp: FastMCP) -> None
             component.output_schema = None
 
     child = FastMCP.from_openapi(
-        openapi_spec=openapi_spec,
+        openapi_spec=prepare_spec(openapi_spec, read_tools_mode(), OBJECT_TYPES),
         client=client,
         name=f"Tree {project}",
         route_map_fn=map_route,
