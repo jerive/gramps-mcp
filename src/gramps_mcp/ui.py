@@ -1,40 +1,77 @@
-"""A card that shows planned changes in colour, for hosts that render MCP Apps.
+"""Cards that show planned changes in colour, for hosts that render MCP Apps.
 
 Additions are green, edits orange and deletions red; each change carries the
-icon of the kind of object it touches.
+icon of the kind of object it touches. `preview_changes` only shows them. With
+`apply_changes` the card is interactive: the user can untick changes (the ones
+that depend on them follow), fix a name, and apply; the button calls
+`confirm_changes`, a tool the host keeps away from the model.
 """
 
 from __future__ import annotations
 
+import copy
+import json
 import os
+import secrets
+import time
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import httpx2
-from fastmcp import FastMCP, FastMCPApp
+from fastmcp import Context, FastMCP, FastMCPApp
+from fastmcp.apps import UI_EXTENSION_ID
 from fastmcp.tools import ToolResult
+from prefab_ui.actions import SetState, ShowToast
+from prefab_ui.actions.mcp import CallTool, SendMessage
 from prefab_ui.app import PrefabApp
 from prefab_ui.components import (
     Alert,
-    AlertDescription,
     AlertTitle,
     Badge,
+    Button,
     Card,
     CardContent,
     CardDescription,
+    CardFooter,
     CardHeader,
     CardTitle,
+    Checkbox,
     Column,
+    Input,
     Muted,
     Row,
     Text,
 )
+from prefab_ui.components.control_flow import If
+from prefab_ui.rx import STATE
 
 from .changes import (
+    APPLY_ANNOTATIONS,
     MAX_OPERATIONS,
+    ApplyChangesResult,
     ChangeError,
     Operations,
+    Planned,
+    apply_description,
+    client_label,
+    confirmation_mode,
+    describe_all,
+    digest,
+    execute,
     format_confirmation,
+    make_apply,
     plan,
+)
+from .core import logger
+from .selection import (
+    EditError,
+    EditField,
+    check_edit,
+    closure,
+    direct_requirements,
+    edit_fields,
+    missing_requirements,
+    set_path,
 )
 from .summary import ChangeView, Detail
 
@@ -60,9 +97,34 @@ OP_VARIANTS: dict[str, Variant] = {
 OP_LABELS = {"create": "Added", "update": "Edited", "delete": "Deleted"}
 OP_VERBS = {"create": "Add", "update": "Edit", "delete": "Delete"}
 
+PENDING_TTL_SECONDS = 1800
+PENDING_LIMIT = 50
+APP_NAME = "Gramps changes"
+CONFIRM_TOOL = "confirm_changes"
+
+CARD_NOTE = (
+    "The changes are shown to the user as a card where they can untick some, fix "
+    "a name and apply. Nothing is written yet. Do not call apply_changes again and "
+    "do not say they were applied: the user's decision arrives as a message."
+)
+
+
+UiMode = Literal["off", "auto", "always"]
+
+
+def ui_mode() -> UiMode:
+    """`prefab`: the card when the client says it renders MCP Apps. `prefab-always`:
+    the card for every client; one that cannot render it writes nothing."""
+    value = os.environ.get("GRAMPS_MCP_UI", "").strip().lower()
+    if value == "prefab":
+        return "auto"
+    if value == "prefab-always":
+        return "always"
+    return "off"
+
 
 def ui_enabled() -> bool:
-    return os.environ.get("GRAMPS_MCP_UI", "").strip().lower() == "prefab"
+    return ui_mode() != "off"
 
 
 def _detail(detail: Detail) -> None:
@@ -80,33 +142,56 @@ def _detail(detail: Detail) -> None:
         Muted(f"{detail.label}: {detail.text}", css_class="text-sm")
 
 
-def _change(view: ChangeView) -> None:
+def _change(
+    view: ChangeView,
+    *,
+    effective: Any = None,
+    blocked: Any = None,
+    fields: list[EditField] | None = None,
+    needs: list[str] | None = None,
+) -> None:
     with Alert(variant=OP_VARIANTS[view.op], icon=TYPE_ICONS.get(view.type, "file")):
         with Row(gap=2, align="center"):
             Badge(OP_VERBS[view.op], variant=OP_VARIANTS[view.op])
             AlertTitle(f"{view.noun.capitalize()}: {view.title}")
-        if view.details:
+        if view.details or fields or needs:
             with Column(gap=1, css_class="mt-1"):
                 for detail in view.details:
                     _detail(detail)
+                if needs:
+                    Muted("Needs: " + ", ".join(needs), css_class="text-sm italic")
+                    with If(blocked):
+                        Text(
+                            "Skipped: a change it needs is unticked.",
+                            css_class="text-sm font-medium",
+                        )
+                if fields and effective is not None:
+                    with If(effective):
+                        for edit in fields:
+                            with Row(gap=2, align="center", css_class="text-sm"):
+                                Muted(f"{edit.label}:")
+                                Input(name=edit.key, css_class="max-w-xs")
 
 
 def counts(views: list[ChangeView]) -> dict[str, int]:
     return {op: sum(1 for v in views if v.op == op) for op in OP_LABELS}
 
 
+def _header(views: list[ChangeView], title: str, note: str) -> None:
+    with CardHeader():
+        CardTitle(title)
+        CardDescription(note)
+        with Row(gap=2):
+            for op, number in counts(views).items():
+                if number:
+                    Badge(f"{number} {OP_LABELS[op].lower()}", variant=OP_VARIANTS[op])
+
+
 def build_preview(views: list[ChangeView]) -> PrefabApp:
     total = len(views)
+    note = f"{total} change{'s' if total != 1 else ''}, in this order"
     with Card(css_class="max-w-2xl mx-auto") as view:
-        with CardHeader():
-            CardTitle("Changes to review")
-            CardDescription(f"{total} change{'s' if total != 1 else ''}, in this order")
-            with Row(gap=2):
-                for op, number in counts(views).items():
-                    if number:
-                        Badge(
-                            f"{number} {OP_LABELS[op].lower()}", variant=OP_VARIANTS[op]
-                        )
+        _header(views, "Changes to review", note)
         with CardContent(), Column(gap=3):
             for change in views:
                 _change(change)
@@ -116,16 +201,175 @@ def build_preview(views: list[ChangeView]) -> PrefabApp:
 def build_error(message: str) -> PrefabApp:
     with Alert(variant="destructive", icon="circle-alert") as view:
         AlertTitle("These changes cannot be previewed")
-        AlertDescription(message)
+        Text(message)
     return PrefabApp(view=view)
 
 
-def register_preview(
-    server: FastMCP, client: httpx2.AsyncClient, *, auth: Any = None
+def _ref(name: str) -> str:
+    return "{{ " + name + " }}"
+
+
+def _effective(i: int, requires: list[set[int]]) -> Any:
+    """Whether change `i` will be applied: its own box and the boxes of every
+    change it needs are ticked. Nothing is written back to the boxes, so the
+    user's own choices are kept and ticking a change again restores what it
+    needed."""
+    expr = getattr(STATE, f"s{i}")
+    for p in sorted(requires[i]):
+        expr = expr & getattr(STATE, f"s{p}")
+    return expr
+
+
+def _blocked(i: int, requires: list[set[int]]) -> Any:
+    """Ticked, yet skipped because a change it needs is not."""
+    needed = getattr(STATE, f"s{sorted(requires[i])[0]}") if requires[i] else None
+    for p in sorted(requires[i])[1:]:
+        needed = needed & getattr(STATE, f"s{p}")
+    return getattr(STATE, f"s{i}") & ~needed if needed is not None else None
+
+
+def _effective_ref(i: int, requires: list[set[int]]) -> str:
+    return _ref(" && ".join(f"s{n}" for n in [i, *sorted(requires[i])]))
+
+
+def build_interactive(planned: list[Planned], token: str) -> PrefabApp:
+    """The card of `apply_changes`: tick, edit, apply."""
+    views = [p.view for p in planned if p.view is not None]
+    fields = edit_fields([(p.op, p.type, p.body, p.current) for p in planned])
+    requires, required_by = closure(
+        direct_requirements([(p.op, p.body) for p in planned])
+    )
+    total = len(views)
+
+    state: dict[str, Any] = {f"s{i}": True for i in range(total)}
+    state.update({f.key: f.value for f in fields})
+    state.update({"done": False, "outcome": ""})
+
+    apply = CallTool(
+        CONFIRM_TOOL,
+        arguments={
+            "token": token,
+            "selection": {str(i): _effective_ref(i, requires) for i in range(total)},
+            "edits": {f.key: _ref(f.key) for f in fields},
+        },
+        on_success=[
+            SetState("done", True),
+            SetState("outcome", "{{ $result.message }}"),
+            SendMessage("{{ $result.message }}"),
+        ],
+        on_error=ShowToast("The changes could not be applied.", variant="error"),
+    )
+    cancel = [
+        SetState("done", True),
+        SetState("outcome", "Cancelled. Nothing was written."),
+        SendMessage("The user cancelled these changes. Nothing was written."),
+    ]
+
+    plural = "s" if total != 1 else ""
+    with Card(css_class="max-w-2xl mx-auto") as view:
+        _header(
+            views,
+            "Review the changes",
+            f"{total} change{plural}. Untick what you do not want, and fix a name "
+            "if it is misspelled. A change is skipped when one it needs is unticked.",
+        )
+        with CardContent(), Column(gap=3):
+            for i, change in enumerate(views):
+                with Row(gap=3, align="start"):
+                    Checkbox(name=f"s{i}", value=True)
+                    with Column(css_class="flex-1"):
+                        _change(
+                            change,
+                            effective=_effective(i, requires),
+                            blocked=_blocked(i, requires),
+                            fields=[f for f in fields if f.op == i],
+                            needs=[views[p].title for p in sorted(requires[i])],
+                        )
+        with CardFooter():
+            with If(STATE.done):
+                Text("{{ outcome }}")
+            with If(~STATE.done):  # noqa: SIM117
+                with Row(gap=2, css_class="w-full justify-end"):
+                    Button("Cancel", variant="outline", on_click=cancel)
+                    Button("Apply", variant="success", on_click=apply)
+    return PrefabApp(view=view, state=state)
+
+
+def _payload(card: PrefabApp) -> dict[str, Any]:
+    """The card as the host receives it, with the button's tool call addressed
+    to the tool this server lists under its own name."""
+    try:
+        from fastmcp.tools.base import _prefab_to_json
+
+        payload: dict[str, Any] = _prefab_to_json(card, fastmcp_app_name=APP_NAME)
+        return payload
+    except ImportError:  # pragma: no cover
+        return card.to_json()
+
+
+@dataclass
+class Pending:
+    operations: list[Any]
+    digest: str
+    created: float = field(default_factory=time.monotonic)
+
+
+class PendingStore:
+    """Changes shown in a card, waiting for the button. Kept in memory: a
+    restart means the card has expired and the changes must be asked again."""
+
+    def __init__(
+        self, ttl: float = PENDING_TTL_SECONDS, limit: int = PENDING_LIMIT
+    ) -> None:
+        self._items: dict[str, Pending] = {}
+        self._ttl = ttl
+        self._limit = limit
+
+    def _purge(self) -> None:
+        now = time.monotonic()
+        for token in [t for t, p in self._items.items() if now - p.created > self._ttl]:
+            del self._items[token]
+        while len(self._items) >= self._limit:
+            del self._items[next(iter(self._items))]
+
+    def add(self, operations: list[Any], digest_: str) -> str:
+        self._purge()
+        token = secrets.token_urlsafe(16)
+        self._items[token] = Pending(operations, digest_)
+        return token
+
+    def get(self, token: str) -> Pending | None:
+        self._purge()
+        return self._items.get(token)
+
+    def discard(self, token: str) -> None:
+        self._items.pop(token, None)
+
+
+def _outcome(result: ApplyChangesResult) -> ToolResult:
+    return ToolResult(
+        content=result.message, structured_content=result.model_dump(mode="json")
+    )
+
+
+def _refused(status: Literal["invalid", "not_applied"], message: str) -> ToolResult:
+    return _outcome(ApplyChangesResult(status=status, message=message))
+
+
+def register_ui(
+    server: FastMCP,
+    client: httpx2.AsyncClient,
+    *,
+    auth: Any = None,
+    confirmation: Literal["required", "when-supported"] | None = None,
 ) -> None:
-    """Adds `preview_changes`: the same plan as `apply_changes`, shown as a card,
-    that writes nothing."""
-    app = FastMCPApp("Gramps changes")
+    """Registers `preview_changes`, and `apply_changes` with its interactive card
+    and the `confirm_changes` tool behind its button."""
+    mode = confirmation or confirmation_mode()
+    ui = ui_mode()
+    core = make_apply(client, mode)
+    store = PendingStore()
+    app = FastMCPApp(APP_NAME)
 
     @app.ui(
         name="preview_changes",
@@ -146,10 +390,128 @@ def register_preview(
         card = build_preview([p.view for p in planned if p.view is not None])
         return ToolResult(
             content=format_confirmation(
-                planned,
-                f"Preview of {len(planned)} change(s). Nothing was written.",
+                planned, f"Preview of {len(planned)} change(s). Nothing was written."
             ),
             structured_content=card.to_json(),
         )
+
+    @app.ui(
+        name="apply_changes",
+        description=apply_description(mode, card=True),
+        annotations=APPLY_ANNOTATIONS,
+        auth=auth,
+    )
+    async def apply_changes(operations: Operations, ctx: Context) -> Any:
+        advertised = ctx.client_supports_extension(UI_EXTENSION_ID)
+        logger.info(
+            "apply_changes from %s: advertises MCP Apps=%s, card=%s",
+            client_label(ctx),
+            advertised,
+            advertised or ui == "always",
+        )
+        if not (advertised or ui == "always"):
+            outcome = await core(operations, ctx)
+            if isinstance(outcome, ApplyChangesResult):
+                data = outcome.model_dump(mode="json")
+                return ToolResult(
+                    content=json.dumps(data, ensure_ascii=False),
+                    structured_content=data,
+                )
+            return outcome
+        try:
+            planned = await plan(client, operations)
+        except ChangeError as exc:
+            return _refused("invalid", str(exc))
+        token = store.add(operations, digest(format_confirmation(planned)))
+        card = build_interactive(planned, token)
+        header = f"{len(planned)} change(s) waiting for the user's decision."
+        return ToolResult(
+            content=f"{CARD_NOTE}\n\n{format_confirmation(planned, header)}",
+            structured_content=_payload(card),
+        )
+
+    @app.tool(name=CONFIRM_TOOL, auth=auth)
+    async def confirm_changes(
+        token: str, selection: dict[str, bool], edits: dict[str, str]
+    ) -> ToolResult:
+        pending = store.get(token)
+        if pending is None:
+            return _refused(
+                "not_applied",
+                "This confirmation has expired, so nothing was written. Ask for the "
+                "changes again.",
+            )
+        try:
+            planned = await plan(client, pending.operations)
+        except ChangeError as exc:
+            store.discard(token)
+            return _refused("invalid", str(exc))
+        if digest(format_confirmation(planned)) != pending.digest:
+            store.discard(token)
+            return _refused(
+                "not_applied",
+                "The objects changed since the changes were shown, so nothing was "
+                "written. Ask for the changes again.",
+            )
+
+        count = len(planned)
+        logger.info(
+            "confirm_changes received selection=%s edits=%s", selection, sorted(edits)
+        )
+        keys = {k for k in selection if k.isdigit() and int(k) < count}
+        if keys != set(selection):
+            return _refused("invalid", "The selection does not match the changes.")
+        chosen = {int(k) for k in keys if selection[k] is True}
+        if not chosen:
+            return _refused(
+                "not_applied", "No change was selected, so nothing was written."
+            )
+
+        requires, _ = closure(direct_requirements([(p.op, p.body) for p in planned]))
+        gaps = missing_requirements(chosen, requires)
+        if gaps:
+            first, needed = gaps[0]
+            return _refused(
+                "invalid",
+                f"Change {first + 1} needs change {needed + 1}, which is not selected.",
+            )
+
+        fields = {
+            f.key: f
+            for f in edit_fields([(p.op, p.type, p.body, p.current) for p in planned])
+        }
+        applied_edits = 0
+        for key, raw in edits.items():
+            edit = fields.get(key)
+            if edit is None:
+                return _refused("invalid", "Unknown field in the edits.")
+            if edit.op not in chosen:
+                continue
+            try:
+                value = check_edit(raw)
+                if not value:
+                    raise EditError(f"The {edit.label} cannot be empty.")
+                if value == edit.value:
+                    continue
+                target = planned[edit.op]
+                if target.body is None:
+                    raise EditError("There is nothing to edit.")
+                target.body = copy.deepcopy(target.body)
+                set_path(target.body, edit.path, value)
+                applied_edits += 1
+            except EditError as exc:
+                return _refused("invalid", str(exc))
+        if applied_edits:
+            await describe_all(client, planned)
+
+        logger.info(
+            "confirm_changes: %d of %d selected, %d edited",
+            len(chosen),
+            count,
+            applied_edits,
+        )
+        store.discard(token)
+        result = await execute(client, [planned[i] for i in sorted(chosen)])
+        return _outcome(result)
 
     server.add_provider(app)

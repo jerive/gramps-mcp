@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
@@ -314,6 +315,12 @@ async def plan(
                 Planned("delete", op.type, op.handle, "DELETE", path, None, current)
             )
 
+    await describe_all(client, planned)
+    return planned
+
+
+async def describe_all(client: httpx2.AsyncClient, planned: list[Planned]) -> None:
+    """(Re)builds the readable view of every planned change from its body."""
     created = {
         str(item.body["handle"]): (item.type, item.body)
         for item in planned
@@ -324,7 +331,6 @@ async def plan(
         item.view = await view_operation(
             labeler, item.op, item.type, item.body, item.current
         )
-    return planned
 
 
 def _created_handle(transaction: list[JsonObject], class_name: str) -> str | None:
@@ -432,7 +438,7 @@ def confirmation_mode() -> Literal["required", "when-supported"]:
     )
 
 
-def _digest(message: str) -> str:
+def digest(message: str) -> str:
     return hashlib.sha256(message.encode()).hexdigest()[:32]
 
 
@@ -441,7 +447,7 @@ def _is_modern(ctx: Context) -> bool:
     return request is not None and request.protocol_version >= MODERN_PROTOCOL_FROM
 
 
-def _client_label(ctx: Context) -> str:
+def client_label(ctx: Context) -> str:
     params = getattr(ctx.session, "client_params", None)
     info = getattr(params, "client_info", None)
     name = getattr(info, "name", None) or "unknown client"
@@ -489,9 +495,9 @@ def _ask_modern(ctx: Context, message: str) -> Answer | InputRequiredResult:
     )
     if not can_ask:
         return UNSUPPORTED
-    digest = _digest(message)
+    state_digest = digest(message)
     responses = ctx.input_responses
-    if responses is not None and ctx.request_state == digest:
+    if responses is not None and ctx.request_state == state_digest:
         answer = responses.get(CONFIRM_KEY)
         if isinstance(answer, ElicitResult):
             return _interpret(answer.action, answer.content)
@@ -504,7 +510,7 @@ def _ask_modern(ctx: Context, message: str) -> Answer | InputRequiredResult:
                 )
             )
         },
-        request_state=digest,
+        request_state=state_digest,
     )
 
 
@@ -516,43 +522,52 @@ def _declined_message(detail: str) -> str:
     return f"The client did not confirm: {detail}."
 
 
-def register_apply_changes(
-    server: FastMCP,
-    client: httpx2.AsyncClient,
-    *,
-    auth: Any = None,
-    confirmation: Literal["required", "when-supported"] | None = None,
-) -> None:
-    mode = confirmation or confirmation_mode()
-    asks = (
-        "The user is shown every change and must confirm before anything is written."
-        if mode == "required"
-        else "If the client can ask the user, they are shown every change and "
-        "must confirm; a client that cannot ask has the changes applied directly."
+def apply_description(mode: Literal["required", "when-supported"], card: bool) -> str:
+    if card:
+        asks = (
+            "The user is shown the changes as a card where they can untick "
+            "changes, fix a name and apply; nothing is written until they do. "
+            "If the client cannot show the card, it asks for a confirmation "
+            "instead."
+        )
+    elif mode == "required":
+        asks = (
+            "The user is shown every change and must confirm before anything is "
+            "written."
+        )
+    else:
+        asks = (
+            "If the client can ask the user, they are shown every change and "
+            "must confirm; a client that cannot ask has the changes applied "
+            "directly."
+        )
+    return (
+        "Change this tree: add, edit or delete objects. This is the only way "
+        "to write. Give the whole set of changes as a list of operations: "
+        "`create` (full object), `update` (handle plus only the changed "
+        "fields) or `delete` (handle). Look up handles with the read tools "
+        f"first. {asks} If a change fails, the earlier ones are undone. At most "
+        f"{MAX_OPERATIONS} operations per call."
     )
 
-    @server.tool(
-        name="apply_changes",
-        description=(
-            "Change this tree: add, edit or delete objects. This is the only way "
-            "to write. Give the whole set of changes as a list of operations: "
-            "`create` (full object), `update` (handle plus only the changed "
-            "fields) or `delete` (handle). Look up handles with the read tools "
-            f"first. {asks} If a change fails, the earlier ones are "
-            f"undone. At most {MAX_OPERATIONS} operations per call."
-        ),
-        annotations=ToolAnnotations(
-            read_only_hint=False,
-            destructive_hint=True,
-            idempotent_hint=False,
-            open_world_hint=False,
-        ),
-        meta={"anthropic/requiresUserInteraction": True},
-        auth=auth,
-    )
-    async def apply_changes(
-        operations: Operations, ctx: Context
-    ) -> ApplyChangesResult | InputRequiredResult:
+
+APPLY_ANNOTATIONS = ToolAnnotations(
+    read_only_hint=False,
+    destructive_hint=True,
+    idempotent_hint=False,
+    open_world_hint=False,
+)
+APPLY_META = {"anthropic/requiresUserInteraction": True}
+
+ApplyOutcome = ApplyChangesResult | InputRequiredResult
+
+
+def make_apply(
+    client: httpx2.AsyncClient, mode: Literal["required", "when-supported"]
+) -> Callable[[Operations, Context], Awaitable[ApplyOutcome]]:
+    """The confirmation flow of `apply_changes`: ask the user, then write."""
+
+    async def apply(operations: Operations, ctx: Context) -> ApplyOutcome:
         for _ in range(MAX_CONFIRMATIONS):
             try:
                 planned = await plan(client, operations)
@@ -579,7 +594,7 @@ def register_apply_changes(
 
             logger.info(
                 "apply_changes confirmation from %s: %s",
-                _client_label(ctx),
+                client_label(ctx),
                 answer.detail,
             )
             if answer.decision == "declined":
@@ -597,7 +612,7 @@ def register_apply_changes(
                     )
                 logger.warning(
                     "applying without confirmation: %s cannot ask for one",
-                    _client_label(ctx),
+                    client_label(ctx),
                 )
                 result = await execute(client, planned)
                 result.message += " (no confirmation: the client cannot ask for one)"
@@ -611,3 +626,28 @@ def register_apply_changes(
                 "nothing was written. Try again."
             ),
         )
+
+    return apply
+
+
+def register_apply_changes(
+    server: FastMCP,
+    client: httpx2.AsyncClient,
+    *,
+    auth: Any = None,
+    confirmation: Literal["required", "when-supported"] | None = None,
+) -> None:
+    mode = confirmation or confirmation_mode()
+    apply = make_apply(client, mode)
+
+    @server.tool(
+        name="apply_changes",
+        description=apply_description(mode, card=False),
+        annotations=APPLY_ANNOTATIONS,
+        meta=APPLY_META,
+        auth=auth,
+    )
+    async def apply_changes(
+        operations: Operations, ctx: Context
+    ) -> ApplyChangesResult | InputRequiredResult:
+        return await apply(operations, ctx)

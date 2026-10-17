@@ -29,6 +29,10 @@ What this means in practice:
   `GRAMPS_MCP_CONFIRMATION=when-supported`, a client that cannot ask is not
   asked, so keep the default unless you accept that. This guards against a
   model's mistake, not against a user who confirms without reading.
+- **With the interactive card, the host must keep `confirm_changes` away from
+  the model.** The user's click on Apply calls that tool; the guarantee that the
+  model cannot call it rests on the host honouring its `visibility: ["app"]`.
+  Check in your client that it is not in the model's tool list.
 - **Review what the agent did.** Gramps Web's transaction history records
   changes and can undo them.
 - **Prefer a copy.** Pointing the agent at a duplicate of the tree is the safest

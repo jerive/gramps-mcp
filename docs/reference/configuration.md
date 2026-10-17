@@ -62,7 +62,7 @@ modes. See [Tools and resources](tools.md#the-write-tool).
 
 | Variable | Default | Description |
 |---|---|---|
-| `GRAMPS_MCP_UI` | unset | Set to `prefab` to add the `preview_changes` tool, a colour-coded card of the planned changes for clients that render MCP Apps. See [Tools and resources](tools.md#preview-card-experimental). |
+| `GRAMPS_MCP_UI` | unset | `prefab`: colour-coded cards for clients that render MCP Apps: `apply_changes` shows an [interactive card](tools.md#interactive-card-experimental) (untick changes, fix a name, apply) and `preview_changes` shows a read-only one. `prefab-always`: the card for every client; one that cannot render it writes nothing. Unset: text only. |
 
 ## Logging
 

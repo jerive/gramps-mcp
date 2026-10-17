@@ -8,7 +8,7 @@ import pytest
 from fastmcp import Client, FastMCP
 
 from gramps_mcp.summary import ChangeView
-from gramps_mcp.ui import build_preview, register_preview, ui_enabled
+from gramps_mcp.ui import build_preview, register_ui, ui_enabled
 
 PERSON = {
     "handle": "p1",
@@ -57,9 +57,9 @@ def test_ui_is_off_unless_asked(monkeypatch):
 
 async def call(gramps: Gramps, operations: list[dict[str, Any]]):
     server = FastMCP()
-    register_preview(server, gramps.client())
+    register_ui(server, gramps.client(), confirmation="required")
     async with Client(server) as client:
-        (tool,) = await client.list_tools()
+        tool = next(t for t in await client.list_tools() if t.name == "preview_changes")
         result = await client.call_tool(
             "preview_changes", {"operations": operations}, raise_on_error=False
         )

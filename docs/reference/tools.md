@@ -142,6 +142,43 @@ The list lives in `EXCLUDED_ROUTE_PREFIXES` in `src/gramps_mcp/trees.py`; the re
 |---|---|
 | `gramps://goql-spec` | A guide to the Gramps Object Query Language ([the same text is here](goql.md)), so an agent can write a valid `where_expr` for the `post_<type>_query` tools before calling them. |
 
+## Interactive card (experimental)
+
+With `GRAMPS_MCP_UI=prefab`, `apply_changes` shows its changes as a card in
+clients that render MCP Apps, instead of asking for a confirmation:
+
+![The card of apply_changes: boxes, a name being fixed, buttons](../assets/interactive-card.png)
+
+- **Tick or untick** each change. A change is applied only if the changes it
+  needs are ticked too: the person that cites a created event, the family that
+  cites the created person, the father's edit that adds the family. Unticking
+  one marks what depends on it "Skipped" at once, keeping the user's own boxes,
+  so ticking it again brings them back.
+![The first change is unticked, so the three that need it are skipped](../assets/interactive-card-skipped.png)
+
+- **Fix a name** before applying: a first name, surname, event description,
+  place name, note text, title. Only these text fields of a created object, or
+  of an edited one that the change touches, can be edited, up to 500
+  characters. Dates, handles and references cannot.
+- **Apply** calls `confirm_changes`, a tool the host keeps away from the model
+  (`visibility: ["app"]`). The server rebuilds the changes, refuses them if an
+  object changed since the card was shown, checks the selection is consistent
+  and the edits are allowed, writes what is selected, and the outcome is sent to
+  the conversation as a message. **Cancel** writes nothing.
+- A card can be applied once, within 30 minutes. They are kept in memory, so a
+  restart expires them: ask for the changes again.
+
+A client that does not advertise MCP Apps gets the confirmation described above
+(elicitation), as if the card did not exist. `GRAMPS_MCP_UI=prefab-always` shows
+the card to every client; one that cannot render it then writes nothing.
+
+Limits to know. The guarantee that the model cannot confirm for the user rests
+on the host keeping `confirm_changes` out of the model's tool list, as the MCP
+Apps specification asks; check it in your client. The card does not set Claude
+Code's `requiresUserInteraction` mark, and `apply_changes` has no output schema
+in this mode. The labels that name an object do not follow a name you are
+editing until you apply.
+
 ## Preview card (experimental)
 
 With `GRAMPS_MCP_UI=prefab`, each tree also gets `preview_changes`. It takes the
