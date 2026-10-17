@@ -635,31 +635,6 @@ async def test_the_confirmation_outcome_is_logged_with_the_client_and_protocol(
     assert ("2026-07-28" if mode == "auto" else "2025-11-25") in line
 
 
-def test_a_created_place_needs_its_name_and_coordinates():
-    adapter = TypeAdapter(Operations)
-    place = {"name": {"value": "São Paulo, Brésil"}}
-    with pytest.raises(ValidationError, match=r"missing \['lat', 'long'\]"):
-        adapter.validate_python([{"op": "create", "type": "places", "object": place}])
-    (op,) = adapter.validate_python(
-        [
-            {
-                "op": "create",
-                "type": "places",
-                "object": {**place, "lat": -23.5505, "long": ""},
-            }
-        ]
-    )
-    # a number is written as text, and an empty one says "unknown"
-    assert op.object["lat"] == "-23.5505" and op.object["long"] == ""  # type: ignore[union-attr]
-
-
-def test_only_places_need_coordinates():
-    (op,) = TypeAdapter(Operations).validate_python(
-        [{"op": "create", "type": "tags", "object": {"name": "x"}}]
-    )
-    assert op.type == "tags"
-
-
 async def test_the_model_is_shown_the_schema_of_each_object(monkeypatch):
     from gramps_mcp import changes
 
@@ -678,5 +653,4 @@ async def test_the_model_is_shown_the_schema_of_each_object(monkeypatch):
         "properties"
     ]["object"]["anyOf"]
     assert [v["description"] for v in variants] == ["P", "T"]
-    assert variants[0]["required"] == ["name", "lat", "long"]
-    assert "required" not in variants[1] and "lat" in text
+    assert "`lat` and `long`" in text  # the place hint

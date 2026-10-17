@@ -97,13 +97,9 @@ class _Strict(BaseModel):
 # the backend's spec (see `spec.object_schemas`). Set once at startup, before the
 # tools are registered; empty, the object is just an object.
 OBJECT_SCHEMAS: dict[str, JsonObject] = {}
-# Fields that a created object of this type must carry. A place with no map
-# position is of little use, and the model leaves out what nothing asks for.
-REQUIRED_ON_CREATE = {"places": ("name", "lat", "long")}
 PLACE_HINT = (
-    'A place needs its `name` ({"value": "City, Country"}) and its `lat` and `long` '
-    '(decimal degrees as text, e.g. "-23.5505" and "-46.6333"; empty strings only '
-    "if you really do not know them)."
+    "For a place, give `lat` and `long` (decimal degrees as text, e.g. "
+    '"-23.5505") along with its `name`.'
 )
 
 
@@ -115,14 +111,9 @@ def set_object_schemas(schemas: dict[str, JsonObject]) -> None:
 def _show_object_schemas(schema: JsonObject) -> None:
     if not OBJECT_SCHEMAS:
         return
-    required = REQUIRED_ON_CREATE
-    variants = [
-        {**s, "required": list(required[t])} if t in required else s
-        for t, s in OBJECT_SCHEMAS.items()
-    ]
     schema["properties"]["object"] = {
         **schema["properties"]["object"],
-        "anyOf": variants,
+        "anyOf": list(OBJECT_SCHEMAS.values()),
     }
 
 
@@ -150,14 +141,7 @@ class CreateOperation(_Strict):
         forbidden = sorted(READ_ONLY_FIELDS & self.object.keys())
         if forbidden:
             raise ValueError(f"read-only fields cannot be set: {forbidden}")
-        body = {**self.object, "_class": expected}
-        missing = [k for k in REQUIRED_ON_CREATE.get(self.type, ()) if k not in body]
-        if missing:
-            raise ValueError(f"missing {missing}: {PLACE_HINT}")
-        for key in ("lat", "long"):
-            if self.type == "places" and isinstance(body[key], int | float):
-                body[key] = str(body[key])
-        self.object = body
+        self.object = {**self.object, "_class": expected}
         return self
 
 

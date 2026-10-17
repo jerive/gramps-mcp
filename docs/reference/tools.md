@@ -60,10 +60,9 @@ fields the server computes). The server does not validate against it: Gramps
 does, and is stricter. The schema is there so the model knows which fields exist.
 It makes `apply_changes` the largest tool of a tree, about 28 KB of definition.
 
-A created place must carry `name`, `lat` and `long` (decimal degrees as text; a
-number is accepted and written as text; empty strings mean "unknown"). A place
-without a map position is of little use, and a model leaves out what nothing
-asks for.
+The description also asks for a place's `lat` and `long`, which the model
+otherwise tends to leave out. It is a suggestion, not a check: a place without
+coordinates is accepted.
 
 `type` is one of `people`, `families`, `events`, `places`, `citations`,
 `sources`, `repositories`, `media`, `notes`, `tags`. Unknown keys are refused,
