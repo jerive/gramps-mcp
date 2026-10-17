@@ -5,10 +5,9 @@ from typing import Any
 
 import httpx2
 import pytest
-from fastmcp import Client, FastMCP
 
 from gramps_mcp.summary import ChangeView
-from gramps_mcp.ui import build_preview, register_ui, ui_enabled
+from gramps_mcp.ui import build_preview, ui_enabled
 
 PERSON = {
     "handle": "p1",
@@ -53,49 +52,6 @@ def test_ui_is_off_unless_asked(monkeypatch):
     assert ui_enabled()
     monkeypatch.setenv("GRAMPS_MCP_UI", "text")
     assert not ui_enabled()
-
-
-async def call(gramps: Gramps, operations: list[dict[str, Any]]):
-    server = FastMCP()
-    register_ui(server, gramps.client(), confirmation="required")
-    async with Client(server) as client:
-        tool = next(t for t in await client.list_tools() if t.name == "preview_changes")
-        result = await client.call_tool(
-            "preview_changes", {"operations": operations}, raise_on_error=False
-        )
-    return tool, result
-
-
-async def test_preview_is_a_colour_coded_card_with_a_readable_text_fallback():
-    tool, result = await call(Gramps(), OPERATIONS)
-
-    assert tool.meta["ui"]["resourceUri"].startswith("ui://")
-    text = result.content[0].text
-    assert text.startswith("Preview of 3 change(s). Nothing was written.")
-    assert "Edit person: Marie Dupont (I1)" in text and "sex: female → male" in text
-
-    card = json.dumps(result.structured_content)
-    assert "$prefab" in card
-    for variant in ("success", "warning", "destructive"):
-        assert variant in card
-    for icon in ("calendar", "user"):
-        assert icon in card
-    assert "Marie Dupont" in card
-
-
-async def test_preview_never_writes():
-    gramps = Gramps()
-    await call(gramps, OPERATIONS)
-    assert set(gramps.methods) == {"GET"}
-
-
-async def test_preview_of_unknown_object_shows_an_error_card():
-    _, result = await call(
-        Gramps(), [{"op": "delete", "type": "people", "handle": "gone"}]
-    )
-    assert not result.is_error
-    assert "does not exist" in result.content[0].text
-    assert "cannot be previewed" in json.dumps(result.structured_content)
 
 
 @pytest.mark.parametrize("count", [1, 2])

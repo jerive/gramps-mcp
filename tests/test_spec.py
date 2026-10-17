@@ -197,3 +197,33 @@ def test_versions(caplog):
     with caplog.at_level("WARNING", logger="gramps_mcp"):
         check_api_version(make_spec("3.30.0"))
     assert "newer than" in caplog.text
+
+
+async def test_the_goql_guide_can_be_added_to_any_server():
+    from gramps_mcp.goql import register_goql_resource
+
+    server = FastMCP()
+    register_goql_resource(server)
+    async with Client(server) as client:
+        uris = {str(r.uri) for r in await client.list_resources()}
+        text = (await client.read_resource("gramps://goql-spec"))[0].text
+    assert uris == {"gramps://goql-spec"} and "where_expr" in text
+    assert "query_objects" in text
+
+
+def test_the_spec_is_read_from_the_backend(monkeypatch):
+    from gramps_mcp import spec
+
+    seen = []
+
+    def fake_get(url, timeout):
+        seen.append(url)
+        return httpx2.Response(
+            200,
+            json={"info": {"version": "3.23.1"}},
+            request=httpx2.Request("GET", url),
+        )
+
+    monkeypatch.setattr(spec.httpx2, "get", fake_get)
+    assert spec.fetch_openapi_spec()["info"]["version"] == "3.23.1"
+    assert seen == [f"{spec.GRAMPS_BACKEND_URL}/api/openapi.json"]

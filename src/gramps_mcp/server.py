@@ -3,27 +3,13 @@
 from __future__ import annotations
 
 import os
-from importlib import resources
 
-import httpx2
 from fastmcp import FastMCP
 
-from .core import GRAMPS_BACKEND_URL, build_google_auth_provider
+from .core import build_google_auth_provider
+from .goql import register_goql_resource
+from .spec import fetch_openapi_spec
 from .trees import mount_tree
-
-GOQL_SPEC_DESCRIPTION = (
-    "Gramps Object Query Language (GOQL) guide. Read this before writing a "
-    "`where_expr` for the tree-scoped `query_objects` tool, or a "
-    "`MatchesQuery` rule for `list_objects`."
-)
-
-
-def _read_goql_docs() -> str:
-    return (
-        resources.files("gramps_mcp")
-        .joinpath("goql_docs.md")
-        .read_text(encoding="utf-8")
-    )
 
 
 def build_server() -> FastMCP:
@@ -38,16 +24,9 @@ def build_server() -> FastMCP:
     auth_provider = build_google_auth_provider()
     mcp = FastMCP(auth=auth_provider)
 
-    mcp.resource(
-        "gramps://goql-spec",
-        name="gramps-goql-spec",
-        title="Gramps Object Query Language guide",
-        description=GOQL_SPEC_DESCRIPTION,
-        mime_type="text/markdown",
-    )(_read_goql_docs)
+    register_goql_resource(mcp)
 
-    openapi_spec_url = f"{GRAMPS_BACKEND_URL}/api/openapi.json"
-    openapi_spec = httpx2.get(openapi_spec_url, timeout=30).raise_for_status().json()
+    openapi_spec = fetch_openapi_spec()
 
     for project in trees:
         mount_tree(project, openapi_spec, mcp)

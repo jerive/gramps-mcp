@@ -1,8 +1,8 @@
 """Cards that show planned changes in colour, for hosts that render MCP Apps.
 
 Additions are green, edits orange and deletions red; each change carries the
-icon of the kind of object it touches. `preview_changes` only shows them. With
-`apply_changes` the card is interactive: the user can untick changes (the ones
+icon of the kind of object it touches. With `apply_changes` the card is
+interactive: the user can untick changes (the ones
 that depend on them follow), fix a name, and apply; the button calls
 `confirm_changes`, a tool the host keeps away from the model.
 """
@@ -47,7 +47,6 @@ from prefab_ui.rx import STATE
 
 from .changes import (
     APPLY_ANNOTATIONS,
-    MAX_OPERATIONS,
     ApplyChangesResult,
     ChangeError,
     Operations,
@@ -352,37 +351,13 @@ def register_ui(
     auth: Any = None,
     confirmation: Literal["required", "when-supported"] | None = None,
 ) -> None:
-    """Registers `preview_changes`, and `apply_changes` with its interactive card
-    and the `confirm_changes` tool behind its button."""
+    """Registers `apply_changes` with its interactive card and the
+    `confirm_changes` tool behind its button."""
     mode = confirmation or confirmation_mode()
     ui = ui_mode()
     core = make_apply(client, mode)
     store = PendingStore()
     app = FastMCPApp(APP_NAME)
-
-    @app.ui(
-        name="preview_changes",
-        description=(
-            "Show, as a colour-coded card, what a set of changes would do to this "
-            "tree, without writing anything. Takes the same operations as "
-            f"`apply_changes` (at most {MAX_OPERATIONS})."
-        ),
-        auth=auth,
-    )
-    async def preview_changes(operations: Operations) -> ToolResult:
-        try:
-            planned = await plan(client, operations)
-        except ChangeError as exc:
-            return ToolResult(
-                content=str(exc), structured_content=build_error(str(exc)).to_json()
-            )
-        card = build_preview([p.view for p in planned if p.view is not None])
-        return ToolResult(
-            content=format_confirmation(
-                planned, f"Preview of {len(planned)} change(s). Nothing was written."
-            ),
-            structured_content=card.to_json(),
-        )
 
     @app.ui(
         name="apply_changes",

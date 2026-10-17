@@ -17,7 +17,9 @@ import copy
 import re
 from typing import Any, Literal
 
-from .core import logger
+import httpx2
+
+from .core import GRAMPS_BACKEND_URL, logger
 
 # The oldest Gramps Web API this package works with: the `query` endpoints
 # arrived in 3.21 and GOQL's `MatchesQuery` in 3.23.
@@ -49,6 +51,13 @@ _GENERIC = (
         "Query the objects of one type with a structured, GOQL-based request.",
     ),
 )
+
+
+def fetch_openapi_spec() -> dict[str, Any]:
+    """Reads the OpenAPI document of the running Gramps Web API."""
+    url = f"{GRAMPS_BACKEND_URL}/api/openapi.json"
+    spec: dict[str, Any] = httpx2.get(url, timeout=30).raise_for_status().json()
+    return spec
 
 
 class UnsupportedGrampsVersion(RuntimeError):
