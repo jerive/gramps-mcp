@@ -12,6 +12,7 @@ import threading
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx2
 from fastmcp.server.auth import AuthCheck, AuthContext
@@ -340,12 +341,46 @@ def get_shared_google_http_client() -> httpx2.AsyncClient:
     return _SHARED_GOOGLE_HTTP_CLIENT
 
 
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def auth_disabled() -> bool:
+    """Whether GRAMPS_MCP_AUTH=off asks for no authentication at all."""
+    value = os.environ.get("GRAMPS_MCP_AUTH", "auto").strip().lower()
+    if value == "auto":
+        return False
+    if value == "off":
+        return True
+    raise ValueError(f"GRAMPS_MCP_AUTH must be auto or off, got {value!r}")
+
+
+def _require_local_base_url() -> None:
+    base_url = os.environ.get("MCP_BASE_URL", "http://localhost:8000").strip()
+    host = urlparse(base_url).hostname
+    if host not in LOCAL_HOSTS:
+        raise RuntimeError(
+            "GRAMPS_MCP_AUTH=off is only for a local server, but MCP_BASE_URL is "
+            f"{base_url!r}. Unset GRAMPS_MCP_AUTH, or point MCP_BASE_URL at "
+            "localhost."
+        )
+
+
 def build_google_auth_provider() -> GoogleProvider | None:
     """Build a Google OAuth provider from env vars, or None to disable auth.
 
-    Disabling auth is only appropriate for a locally-run, single-user server;
-    anything reachable over a network should set GOOGLE_CLIENT_ID/SECRET.
+    Auth is off when GOOGLE_CLIENT_ID/SECRET are unset, and also when
+    GRAMPS_MCP_AUTH=off, which wins over them so a development shell that
+    carries production credentials stays unauthenticated. Disabling auth is
+    only appropriate for a locally-run, single-user server; anything
+    reachable over a network should set GOOGLE_CLIENT_ID/SECRET.
     """
+    if auth_disabled():
+        _require_local_base_url()
+        logger.warning(
+            "GRAMPS_MCP_AUTH=off: authentication is disabled. Anyone who can "
+            "reach this server can read and change the trees it serves."
+        )
+        return None
     client_id = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
     client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "").strip()
     if not client_id or not client_secret:
