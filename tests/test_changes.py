@@ -19,6 +19,7 @@ from gramps_mcp.changes import (
     ChangeError,
     CreateOperation,
     DeleteOperation,
+    OneTree,
     Operations,
     UpdateOperation,
     confirmation_mode,
@@ -115,7 +116,7 @@ def make_server(
     gramps: FakeGramps, confirmation: Literal["required", "when-supported"] = "required"
 ) -> FastMCP:
     server = FastMCP()
-    register_apply_changes(server, gramps.client(), confirmation=confirmation)
+    register_apply_changes(server, OneTree(gramps.client()), confirmation=confirmation)
     return server
 
 

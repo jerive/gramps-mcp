@@ -31,27 +31,26 @@ async def test_mounted_tree_exposes_the_read_tools():
         tools = await client.list_tools()
         tool_names = {t.name for t in tools}
 
-    for tool in ("list_objects", "get_object", "query_objects", "get_search"):
-        assert any(n.endswith(f"_{tool}") for n in tool_names), sorted(tool_names)
+    for tool in ("list_trees", "list_objects", "get_object", "query_objects"):
+        assert tool in tool_names, sorted(tool_names)
 
 
 async def test_the_generic_tools_return_real_data():
     from gramps_mcp.server import mcp
 
     async with Client(mcp) as client:
-        tools = {t.name.split("_", 1)[1]: t.name for t in await client.list_tools()}
         listed = await client.call_tool(
-            tools["list_objects"], {"object_type": "people", "page": 1, "pagesize": 2}
+            "list_objects", {"object_type": "people", "page": 1, "pagesize": 2}
         )
         people = json.loads(listed.content[0].text)
         if isinstance(people, dict):  # a list may come wrapped as {"result": [...]}
             people = people["result"]
         handle = people[0]["handle"]
         one = await client.call_tool(
-            tools["get_object"], {"object_type": "people", "handle": handle}
+            "get_object", {"object_type": "people", "handle": handle}
         )
         found = await client.call_tool(
-            tools["query_objects"],
+            "query_objects",
             {
                 "object_type": "people",
                 "where_expr": "gender == Person.FEMALE",
@@ -82,7 +81,7 @@ async def test_writes_only_go_through_apply_changes():
     async with Client(mcp) as client:
         names = {t.name for t in await client.list_tools()}
 
-    assert any(n.endswith("_apply_changes") for n in names)
+    assert "apply_changes" in names
     writes = [
         n
         for n in names

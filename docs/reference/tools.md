@@ -4,11 +4,13 @@
 
 For every tree in `GRAMPS_MCP_TREES`, the server reads that Gramps Web API
 instance's `openapi.json` at startup and generates the read tools from it.
-Tools are mounted under a per-tree namespace, `tree-<name>_<tool>`. Eight read
-tools are exposed:
+All the trees share the same tools, and each tool takes the `tree` it is for (the
+`id` that `list_trees` gives; with a single tree it can be left out). Eight read
+tools are exposed, along with `list_trees`:
 
 | Tool | Reads |
 |---|---|
+| `list_trees` | The trees you can use, as `{id, name}`. The list comes from `GRAMPS_MCP_TREES`, not from Gramps: a Gramps user cannot list trees, only a site admin can. |
 | `list_objects` | A page of objects of one type, with filters, sorting and the `profile`/`extend` options. |
 | `get_object` | One object of any type, from its handle. |
 | `query_objects` | Objects of one type matched by a [GOQL](goql.md) `where_expr`, with `select`, `order_by`, `limit` and `count`. |
@@ -27,7 +29,7 @@ keeps its own tools.
 
 Reports, exports, imports, media files and thumbnails, DNA, tree administration
 and the like are not exposed. `GRAMPS_MCP_READ_TOOLS=all` exposes every read
-route of the backend as its own tool (about 90 per tree).
+route of the backend as its own tool (about 90).
 
 ### Gramps Web API version
 
@@ -44,7 +46,7 @@ excluded, so a new write endpoint is never exposed by accident.
 
 ## The write tool
 
-`tree-<name>_apply_changes` is the only way to change a tree. It takes one set
+`apply_changes` is the only way to change a tree; it takes the `tree` to change. It takes one set
 of 1 to 20 operations, in order:
 
 | `op` | Fields | Meaning |

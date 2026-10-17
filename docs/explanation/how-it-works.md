@@ -16,13 +16,15 @@ improvements (see
 [#971](https://github.com/gramps-project/gramps-web-api/pull/971)) are what
 make the generated tool names and descriptions usable by a language model.
 
-## One sub-server per tree
+## One set of tools, one client per tree
 
 A single Gramps Web API instance can host several trees, and each tree has its
-own users. The server builds one generated sub-server **per tree**, logged in
-as that tree's service account, and mounts each under the namespace
-`tree-<name>`. A client sees all of them from a single MCP endpoint, and a
-tool call for `tree-a` can never be answered with `tree-b`'s credentials.
+own users. Gramps cannot give one user several trees, so the server logs in to
+each tree as that tree's service account and keeps one HTTP client per tree.
+The tools are generated once and shared: each takes the `tree` it is for, and
+`list_trees` says which ones there are. A call for `tree` `a` is sent with
+`a`'s client and credentials, so it can never be answered with `b`'s, and the
+`tree` parameter is removed before the request reaches Gramps.
 
 ## What the server adds on top of the generation
 
@@ -56,7 +58,9 @@ There are two unrelated identities in play:
 
 Between the two sits the **per-tree membership check**: a signed-in Google user
 may use a tree only if their email belongs to a Gramps Web user of that tree,
-or to `GRAMPS_MCP_ADMIN_EMAILS`. The membership list comes from
+or to `GRAMPS_MCP_ADMIN_EMAILS`. It is made on every call, for the `tree` the
+call names: a tree that is not the user's reads like one that does not exist,
+and `list_trees` only lists theirs. The membership list comes from
 `GET /api/users/`, cached for `GRAMPS_MCP_GOOGLE_TOKEN_CACHE_TTL` seconds. That
 call needs an Owner (or admin) account, which is why the choice of role
 involves a real trade-off. See

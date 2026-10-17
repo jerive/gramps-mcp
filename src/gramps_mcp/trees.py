@@ -5,23 +5,29 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import httpx2
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
+from fastmcp.server.auth import AccessToken
+from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.providers.openapi.routing import MCPType
 from fastmcp.utilities.openapi import HTTPRoute
+from mcp.types import ToolAnnotations
 
 from .changes import OBJECT_CLASSES, register_apply_changes, set_object_schemas
 from .core import (
     GRAMPS_BACKEND_URL,
     build_body_handle_injection_hook,
     build_http_debug_hooks,
+    is_tree_member,
     login_gramps_user,
-    require_tree_member,
     start_token_refresh_loop,
 )
-from .spec import object_schemas, prepare_spec
+from .spec import TREE_PARAM, object_schemas, prepare_spec
 from .ui import register_ui, ui_enabled
 
 # The read tools of a tree: the business objects, and a few ways to find and
@@ -137,8 +143,78 @@ def get_tree_credentials(project: str) -> tuple[str, str]:
     return username, password
 
 
-def mount_tree(project: str, openapi_spec: dict[str, Any], mcp: FastMCP) -> None:
-    """Logs in to one Gramps tree and mounts its REST API as MCP tools under `mcp`."""
+@dataclass(frozen=True)
+class Tree:
+    id: str
+    name: str
+    client: httpx2.AsyncClient
+    # None: no sign-in is required of the user, so nothing to check.
+    is_member: Callable[[AccessToken | None], bool] | None
+
+
+class Trees:
+    """The trees of this server, each with the Gramps user and client it writes
+    and reads as. Gramps cannot give one user several trees, so there is one
+    client per tree; a call says which one with its `tree`."""
+
+    def __init__(self, trees: list[Tree]) -> None:
+        self._trees = {tree.id: tree for tree in trees}
+
+    @property
+    def ids(self) -> list[str]:
+        return list(self._trees)
+
+    def _allowed(self, tree: Tree) -> bool:
+        return tree.is_member is None or tree.is_member(get_access_token())
+
+    def visible(self) -> list[Tree]:
+        """The trees the user of the current call may use."""
+        return [tree for tree in self._trees.values() if self._allowed(tree)]
+
+    def client(self, tree_id: str | None) -> httpx2.AsyncClient:
+        """The client of a tree, or a `ToolError` saying why there is none. A
+        tree that exists but is not the user's reads like one that does not."""
+        if tree_id is None and len(self._trees) == 1:
+            tree: Tree | None = next(iter(self._trees.values()))
+        elif tree_id is None:
+            raise ToolError(f"Say which tree: one of {', '.join(self._trees)}.")
+        else:
+            tree = self._trees.get(tree_id)
+        if tree is None or not self._allowed(tree):
+            raise ToolError(f"No tree {tree_id!r} is available to you. Use list_trees.")
+        return tree.client
+
+
+class RoutedClient(httpx2.AsyncClient):
+    """The client the generated read tools use: it sends each request through
+    the client of the tree named by its `tree` parameter, and Gramps never sees
+    that parameter."""
+
+    def __init__(self, trees: Trees) -> None:
+        super().__init__(base_url=GRAMPS_BACKEND_URL)
+        self._trees = trees
+
+    async def send(self, request: httpx2.Request, **kwargs: Any) -> httpx2.Response:
+        params = request.url.params
+        client = self._trees.client(params.get(TREE_PARAM))
+        content = await request.aread()
+        headers = [
+            (name, value)
+            for name, value in request.headers.multi_items()
+            if name.lower() not in {"host", "content-length"}
+        ]
+        rest = params.remove(TREE_PARAM)
+        routed = client.build_request(
+            request.method,
+            f"{request.url.path}?{rest}" if rest else request.url.path,
+            headers=headers,
+            content=content,
+        )
+        return await client.send(routed, **kwargs)
+
+
+def connect_tree(project: str, *, check_members: bool) -> Tree:
+    """Logs in to one Gramps tree as its service user."""
     username, password = get_tree_credentials(project)
     access_token, refresh_token = login_gramps_user(username, password)
 
@@ -165,37 +241,68 @@ def mount_tree(project: str, openapi_spec: dict[str, Any], mcp: FastMCP) -> None
     def get_bearer_token() -> str:
         return client.headers.get("Authorization", "").removeprefix("Bearer ").strip()
 
-    # Only gate tools behind tree membership when the server itself requires
-    # Google sign-in; otherwise every request has no token (ctx.token is
-    # None), require_tree_member would deny it, and *no* tool would ever be
-    # usable in the documented unauthenticated/local/single-user mode.
-    tree_check = (
-        require_tree_member(project, get_bearer_token) if mcp.auth is not None else None
+    # Only check membership when the server itself requires Google sign-in;
+    # otherwise there is no token, nobody would be a member, and no tool would
+    # ever be usable in the documented unauthenticated/local/single-user mode.
+    return Tree(
+        id=project.lower(),
+        name=project,
+        client=client,
+        is_member=is_tree_member(project, get_bearer_token) if check_members else None,
     )
 
-    def customize_component(_route: HTTPRoute, component: Any) -> None:
-        if tree_check is not None:
-            component.auth = tree_check
-        # Gramps' declared response schemas are stricter than what the API
-        # really returns (e.g. extra Person fields), and MCP clients validate
-        # structured results against outputSchema, so calls would fail.
-        # Without a schema the data is still returned as structured content.
-        if hasattr(component, "output_schema"):
-            component.output_schema = None
 
-    namespace = f"tree-{project.lower()}"
+def customize_component(_route: HTTPRoute, component: Any) -> None:
+    # Gramps' declared response schemas are stricter than what the API really
+    # returns (e.g. extra Person fields), and MCP clients validate structured
+    # results against outputSchema, so calls would fail. Without a schema the
+    # data is still returned as structured content.
+    if hasattr(component, "output_schema"):
+        component.output_schema = None
+
+
+def mount_trees(
+    projects: list[str], openapi_spec: dict[str, Any], mcp: FastMCP
+) -> None:
+    """Logs in to each Gramps tree and gives `mcp` one set of tools for all of
+    them: every tool takes the `tree` it is for."""
+    trees = Trees(
+        [
+            connect_tree(project, check_members=mcp.auth is not None)
+            for project in projects
+        ]
+    )
+    add_tree_tools(trees, openapi_spec, mcp)
+
+
+def add_tree_tools(trees: Trees, openapi_spec: dict[str, Any], mcp: FastMCP) -> None:
+    """The tools of `trees`, generated from the backend's spec."""
     set_object_schemas(
         object_schemas(openapi_spec, {t: c for t, c in OBJECT_CLASSES.items()})
     )
     child = FastMCP.from_openapi(
-        openapi_spec=prepare_spec(openapi_spec, read_tools_mode(), OBJECT_TYPES),
-        client=client,
-        name=f"Tree {project}",
+        openapi_spec=prepare_spec(
+            openapi_spec, read_tools_mode(), OBJECT_TYPES, trees.ids
+        ),
+        client=RoutedClient(trees),
+        name="Gramps",
         route_map_fn=map_route,
         mcp_component_fn=customize_component,
     )
+
+    @child.tool(
+        name="list_trees",
+        description=(
+            "The trees you can read and change: the `id` is what the other tools "
+            "take as `tree`."
+        ),
+        annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
+    )
+    def list_trees() -> list[dict[str, str]]:
+        return [{"id": tree.id, "name": tree.name} for tree in trees.visible()]
+
     if ui_enabled():
-        register_ui(child, client, auth=tree_check, namespace=namespace)
+        register_ui(child, trees)
     else:
-        register_apply_changes(child, client, auth=tree_check)
-    mcp.mount(child, namespace=namespace)
+        register_apply_changes(child, trees)
+    mcp.mount(child)

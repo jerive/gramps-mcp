@@ -8,11 +8,12 @@ can change the tree without going through `apply_changes` and a confirmation.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Protocol
 
 import httpx2
 from fastmcp import Context, FastMCP
@@ -589,12 +590,62 @@ APPLY_META = {"anthropic/requiresUserInteraction": True}
 ApplyOutcome = ApplyChangesResult | InputRequiredResult
 
 
+class TreeClients(Protocol):
+    """The trees `apply_changes` can write to: which there are, and the client
+    of one of them (refusing a tree that is unknown or that the user may not
+    use)."""
+
+    @property
+    def ids(self) -> list[str]: ...
+
+    def client(self, tree: str | None) -> httpx2.AsyncClient: ...
+
+
+class OneTree:
+    """A single tree behind one client, for a server with no others."""
+
+    def __init__(self, client: httpx2.AsyncClient, tree: str = "default") -> None:
+        self._client = client
+        self.ids = [tree]
+
+    def client(self, tree: str | None) -> httpx2.AsyncClient:
+        return self._client
+
+
+def with_tree_argument(
+    function: Callable[..., Any], ids: list[str]
+) -> Callable[..., Any]:
+    """`function` with a `tree` parameter that is one of `ids`: required when
+    there are several, and left out when there is only one."""
+    tree_type: Any = Annotated[
+        Literal[tuple(ids)],
+        Field(description="The tree to change. See list_trees."),
+    ]
+    signature = inspect.signature(function)
+    parameters = [
+        p.replace(
+            annotation=tree_type,
+            default=ids[0] if len(ids) == 1 else inspect.Parameter.empty,
+        )
+        if p.name == "tree"
+        else p
+        for p in signature.parameters.values()
+    ]
+    parameters.sort(key=lambda p: p.default is not inspect.Parameter.empty)
+    function.__signature__ = signature.replace(parameters=parameters)  # type: ignore[attr-defined]
+    function.__annotations__["tree"] = tree_type
+    return function
+
+
 def make_apply(
-    client: httpx2.AsyncClient, mode: Literal["required", "when-supported"]
-) -> Callable[[Operations, Context], Awaitable[ApplyOutcome]]:
+    trees: TreeClients, mode: Literal["required", "when-supported"]
+) -> Callable[[Operations, str | None, Context], Awaitable[ApplyOutcome]]:
     """The confirmation flow of `apply_changes`: ask the user, then write."""
 
-    async def apply(operations: Operations, ctx: Context) -> ApplyOutcome:
+    async def apply(
+        operations: Operations, tree: str | None, ctx: Context
+    ) -> ApplyOutcome:
+        client = trees.client(tree)
         for _ in range(MAX_CONFIRMATIONS):
             try:
                 planned = await plan(client, operations)
@@ -659,22 +710,23 @@ def make_apply(
 
 def register_apply_changes(
     server: FastMCP,
-    client: httpx2.AsyncClient,
+    trees: TreeClients,
     *,
-    auth: Any = None,
     confirmation: Literal["required", "when-supported"] | None = None,
 ) -> None:
     mode = confirmation or confirmation_mode()
-    apply = make_apply(client, mode)
+    apply = make_apply(trees, mode)
 
-    @server.tool(
+    async def apply_changes(
+        operations: Operations,
+        tree: Any = None,
+        ctx: Context = None,  # type: ignore[assignment]
+    ) -> ApplyChangesResult | InputRequiredResult:
+        return await apply(operations, tree, ctx)
+
+    server.tool(
         name="apply_changes",
         description=apply_description(mode, card=False),
         annotations=APPLY_ANNOTATIONS,
         meta=APPLY_META,
-        auth=auth,
-    )
-    async def apply_changes(
-        operations: Operations, ctx: Context
-    ) -> ApplyChangesResult | InputRequiredResult:
-        return await apply(operations, ctx)
+    )(with_tree_argument(apply_changes, trees.ids))

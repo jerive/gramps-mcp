@@ -17,7 +17,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-import httpx2
 from fastmcp import Context, FastMCP, FastMCPApp
 from fastmcp.apps import UI_EXTENSION_ID
 from fastmcp.tools import ToolResult
@@ -51,6 +50,7 @@ from .changes import (
     ChangeError,
     Operations,
     Planned,
+    TreeClients,
     apply_description,
     client_label,
     confirmation_mode,
@@ -60,6 +60,7 @@ from .changes import (
     format_confirmation,
     make_apply,
     plan,
+    with_tree_argument,
 )
 from .core import logger
 from .selection import (
@@ -102,6 +103,7 @@ OP_VERBS = {"create": "Add", "update": "Edit", "delete": "Delete"}
 PENDING_TTL_SECONDS = 1800
 PENDING_LIMIT = 50
 CONFIRM_TOOL = "confirm_changes"
+APP_NAME = "gramps-mcp"
 
 CARD_NOTE = (
     "The changes are shown to the user as a card where they can untick some, fix "
@@ -296,13 +298,13 @@ def _unchanged(body: Any, current: Any) -> bool:
     return {k: v for k, v in body.items() if v != [] or k in current} == current
 
 
-def _payload(card: PrefabApp, app_name: str) -> dict[str, Any]:
+def _payload(card: PrefabApp) -> dict[str, Any]:
     """The card as the host receives it, with the button's tool call addressed
     to the tool this server lists under its own name."""
     try:
         from fastmcp.tools.base import _prefab_to_json
 
-        payload: dict[str, Any] = _prefab_to_json(card, fastmcp_app_name=app_name)
+        payload: dict[str, Any] = _prefab_to_json(card, fastmcp_app_name=APP_NAME)
         return payload
     except ImportError:  # pragma: no cover
         return card.to_json()
@@ -312,6 +314,7 @@ def _payload(card: PrefabApp, app_name: str) -> dict[str, Any]:
 class Pending:
     operations: list[Any]
     digest: str
+    tree: str | None
     created: float = field(default_factory=time.monotonic)
 
 
@@ -333,10 +336,10 @@ class PendingStore:
         while len(self._items) >= self._limit:
             del self._items[next(iter(self._items))]
 
-    def add(self, operations: list[Any], digest_: str) -> str:
+    def add(self, operations: list[Any], digest_: str, tree: str | None) -> str:
         self._purge()
         token = secrets.token_urlsafe(16)
-        self._items[token] = Pending(operations, digest_)
+        self._items[token] = Pending(operations, digest_, tree)
         return token
 
     def get(self, token: str) -> Pending | None:
@@ -359,32 +362,25 @@ def _refused(status: Literal["invalid", "not_applied"], message: str) -> ToolRes
 
 def register_ui(
     server: FastMCP,
-    client: httpx2.AsyncClient,
+    trees: TreeClients,
     *,
-    auth: Any = None,
     confirmation: Literal["required", "when-supported"] | None = None,
-    namespace: str,
 ) -> None:
     """Registers `apply_changes` with its interactive card and the
-    `confirm_changes` tool behind its button.
-
-    `namespace` is the one the tree is mounted under, and it names the app.
-    FastMCP addresses the button's tool by a hash of the app's name and the
-    tool's name, so two trees with the same app name would make the button's
-    call ambiguous: the host refuses it and nothing is applied."""
+    `confirm_changes` tool behind its button. The card remembers its tree, so the
+    button writes to the tree it was shown for."""
     mode = confirmation or confirmation_mode()
     ui = ui_mode()
-    core = make_apply(client, mode)
+    core = make_apply(trees, mode)
     store = PendingStore()
-    app = FastMCPApp(namespace)
+    app = FastMCPApp(APP_NAME)
 
-    @app.ui(
-        name="apply_changes",
-        description=apply_description(mode, card=True),
-        annotations=APPLY_ANNOTATIONS,
-        auth=auth,
-    )
-    async def apply_changes(operations: Operations, ctx: Context) -> Any:
+    async def apply_changes(
+        operations: Operations,
+        tree: Any = None,
+        ctx: Context = None,  # type: ignore[assignment]
+    ) -> Any:
+        client = trees.client(tree)
         advertised = ctx.client_supports_extension(UI_EXTENSION_ID)
         logger.info(
             "apply_changes from %s: advertises MCP Apps=%s, card=%s",
@@ -393,7 +389,7 @@ def register_ui(
             advertised or ui == "always",
         )
         if not (advertised or ui == "always"):
-            outcome = await core(operations, ctx)
+            outcome = await core(operations, tree, ctx)
             if isinstance(outcome, ApplyChangesResult):
                 data = outcome.model_dump(mode="json")
                 return ToolResult(
@@ -405,15 +401,21 @@ def register_ui(
             planned = await plan(client, operations)
         except ChangeError as exc:
             return _refused("invalid", str(exc))
-        token = store.add(operations, digest(format_confirmation(planned)))
+        token = store.add(operations, digest(format_confirmation(planned)), tree)
         card = build_interactive(planned, token)
         header = f"{len(planned)} change(s) waiting for the user's decision."
         return ToolResult(
             content=f"{CARD_NOTE}\n\n{format_confirmation(planned, header)}",
-            structured_content=_payload(card, namespace),
+            structured_content=_payload(card),
         )
 
-    @app.tool(name=CONFIRM_TOOL, auth=auth)
+    app.ui(
+        name="apply_changes",
+        description=apply_description(mode, card=True),
+        annotations=APPLY_ANNOTATIONS,
+    )(with_tree_argument(apply_changes, trees.ids))
+
+    @app.tool(name=CONFIRM_TOOL)
     async def confirm_changes(
         token: str, selection: dict[str, bool], edits: dict[str, str]
     ) -> ToolResult:
@@ -424,6 +426,7 @@ def register_ui(
                 "This confirmation has expired, so nothing was written. Ask for the "
                 "changes again.",
             )
+        client = trees.client(pending.tree)  # the user must still be allowed
         try:
             planned = await plan(client, pending.operations)
         except ChangeError as exc:

@@ -9,7 +9,7 @@ from fastmcp import FastMCP
 from .core import build_google_auth_provider
 from .goql import register_goql_resource
 from .spec import fetch_openapi_spec
-from .trees import mount_tree
+from .trees import mount_trees
 
 
 def build_server() -> FastMCP:
@@ -28,8 +28,7 @@ def build_server() -> FastMCP:
 
     openapi_spec = fetch_openapi_spec()
 
-    for project in trees:
-        mount_tree(project, openapi_spec, mcp)
+    mount_trees(trees, openapi_spec, mcp)
 
     return mcp
 

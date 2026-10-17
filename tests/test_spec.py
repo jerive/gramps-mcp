@@ -109,7 +109,7 @@ def make_spec(version: str = "3.23.1") -> dict[str, Any]:
 async def tools_of(spec: dict[str, Any], mode: str, monkeypatch) -> dict[str, Any]:
     monkeypatch.setenv("GRAMPS_MCP_READ_TOOLS", mode)
     server = FastMCP.from_openapi(
-        openapi_spec=prepare_spec(spec, mode, OBJECT_TYPES),  # type: ignore[arg-type]
+        openapi_spec=prepare_spec(spec, mode, OBJECT_TYPES, ["t"]),  # type: ignore[arg-type]
         client=httpx2.AsyncClient(base_url="http://x"),
         route_map_fn=map_route,
     )
@@ -151,7 +151,7 @@ async def test_generic_tools_call_the_right_url(monkeypatch):
         return httpx2.Response(200, json=[])
 
     server = FastMCP.from_openapi(
-        openapi_spec=prepare_spec(make_spec(), "core", OBJECT_TYPES),
+        openapi_spec=prepare_spec(make_spec(), "core", OBJECT_TYPES, ["t"]),
         client=httpx2.AsyncClient(
             base_url="http://x", transport=httpx2.MockTransport(handler)
         ),
@@ -186,7 +186,7 @@ async def test_a_type_that_differs_keeps_its_own_routes(monkeypatch):
 def test_prepare_spec_does_not_modify_its_input():
     spec = make_spec()
     before = copy.deepcopy(spec)
-    prepare_spec(spec, "core", OBJECT_TYPES)
+    prepare_spec(spec, "core", OBJECT_TYPES, ["t"])
     assert spec == before
 
 
@@ -268,3 +268,24 @@ def test_the_schema_of_each_object_comes_from_the_spec():
         "type": "object",
         "properties": {"value": {"type": "string"}},
     }
+
+
+def test_every_operation_takes_the_tree_it_is_for():
+    from gramps_mcp.spec import add_tree_parameter
+
+    spec = make_spec()
+    several = add_tree_parameter(spec, ["a", "b"])
+    one = add_tree_parameter(spec, ["a"])
+    for result, required in ((several, True), (one, False)):
+        for item in result["paths"].values():
+            for method, operation in item.items():
+                if method in ("get", "post", "put"):
+                    (tree,) = [
+                        p for p in operation["parameters"] if p["name"] == "tree"
+                    ]
+                    assert tree["required"] is required and tree["in"] == "query"
+                    assert tree["schema"]["enum"] == (["a", "b"] if required else ["a"])
+    assert not any(
+        p["name"] == "tree"
+        for p in spec["paths"]["/api/search/"]["get"].get("parameters", [])
+    )
