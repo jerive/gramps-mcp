@@ -93,13 +93,40 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+# What the model is shown for the `object` of a `create`, by type: the schema of
+# the backend's spec (see `spec.object_schemas`). Set once at startup, before the
+# tools are registered; empty, the object is just an object.
+OBJECT_SCHEMAS: dict[str, JsonObject] = {}
+PLACE_HINT = (
+    "For a place, give `lat` and `long` (decimal degrees as text, e.g. "
+    '"-23.5505") along with its `name`.'
+)
+
+
+def set_object_schemas(schemas: dict[str, JsonObject]) -> None:
+    OBJECT_SCHEMAS.clear()
+    OBJECT_SCHEMAS.update(schemas)
+
+
+def _show_object_schemas(schema: JsonObject) -> None:
+    if not OBJECT_SCHEMAS:
+        return
+    schema["properties"]["object"] = {
+        **schema["properties"]["object"],
+        "anyOf": list(OBJECT_SCHEMAS.values()),
+    }
+
+
 class CreateOperation(_Strict):
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_show_object_schemas)
+
     op: Literal["create"]
     type: ObjectType
     object: JsonObject = Field(
         description=(
-            "The full Gramps object to add. `_class` may be left out; if given it "
-            "must match `type`. `handle` may be left out: one is assigned."
+            "The full Gramps object to add; its fields are those of the schema "
+            "named like `type`. `_class` may be left out; if given it must match "
+            "`type`. `handle` may be left out: one is assigned. " + PLACE_HINT
         )
     )
 

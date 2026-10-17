@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import copy
 import re
+from collections.abc import Mapping
 from typing import Any, Literal
 
 import httpx2
@@ -193,3 +194,52 @@ def prepare_spec(
     if mode == "all":
         return spec
     return collapse_object_routes(spec, object_types)
+
+
+# Computed by the server, never written by a client.
+_READ_ONLY = frozenset({"backlinks", "extended", "profile", "change", "_class"})
+_MAX_DEPTH = 6
+
+
+def object_schemas(
+    spec: dict[str, Any], classes: Mapping[str, str]
+) -> dict[str, dict[str, Any]]:
+    """The schema of each kind of object a client may create, from the backend's
+    spec: what `apply_changes` shows the model for the `object` of a `create`.
+
+    `classes` maps a type (`people`) to its schema name (`Person`). References are
+    inlined, and what they point to loses its descriptions to keep the size down;
+    the fields of the object itself keep theirs. A type the spec does not know is
+    left out."""
+    components: dict[str, Any] = spec.get("components", {}).get("schemas", {})
+
+    def resolve(node: Any, depth: int = 0) -> Any:
+        if isinstance(node, list):
+            return [resolve(item, depth) for item in node]
+        if not isinstance(node, dict):
+            return node
+        ref = node.get("$ref")
+        if isinstance(ref, str):
+            target = components.get(ref.rsplit("/", 1)[-1])
+            return resolve(target, depth + 1) if target and depth < _MAX_DEPTH else {}
+        return {k: resolve(v, depth) for k, v in node.items() if k != "description"}
+
+    schemas: dict[str, dict[str, Any]] = {}
+    for type_, name in classes.items():
+        schema = components.get(name)
+        if not isinstance(schema, dict):
+            continue
+        properties = {}
+        for key, value in schema.get("properties", {}).items():
+            if key in _READ_ONLY:
+                continue
+            described = resolve(value)
+            if isinstance(value, dict) and value.get("description"):
+                described["description"] = value["description"]
+            properties[key] = described
+        schemas[type_] = {
+            "type": "object",
+            "description": f"The object when `type` is {type_!r}.",
+            "properties": properties,
+        }
+    return schemas

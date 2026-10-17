@@ -251,7 +251,12 @@ async def test_an_event_in_a_place_created_in_the_same_set_names_the_place():
             {
                 "op": "create",
                 "type": "places",
-                "object": {"handle": "sp", "name": {"value": "São Paulo, Brésil"}},
+                "object": {
+                    "handle": "sp",
+                    "name": {"value": "São Paulo, Brésil"},
+                    "lat": "-23.55",
+                    "long": "-46.63",
+                },
             },
             {
                 "op": "create",

@@ -633,3 +633,24 @@ async def test_the_confirmation_outcome_is_logged_with_the_client_and_protocol(
     )
     assert "antigravity-test 1.2" in line and "cancel" in line
     assert ("2026-07-28" if mode == "auto" else "2025-11-25") in line
+
+
+async def test_the_model_is_shown_the_schema_of_each_object(monkeypatch):
+    from gramps_mcp import changes
+
+    monkeypatch.setattr(changes, "OBJECT_SCHEMAS", {})
+    changes.set_object_schemas(
+        {
+            "places": {"type": "object", "description": "P", "properties": {"lat": {}}},
+            "tags": {"type": "object", "description": "T", "properties": {"name": {}}},
+        }
+    )
+    server = make_server(FakeGramps({}))
+    async with Client(server) as client:
+        (tool,) = await client.list_tools()
+    text = json.dumps(tool.input_schema)
+    variants = tool.input_schema["properties"]["operations"]["items"]["oneOf"][0][
+        "properties"
+    ]["object"]["anyOf"]
+    assert [v["description"] for v in variants] == ["P", "T"]
+    assert "`lat` and `long`" in text  # the place hint
