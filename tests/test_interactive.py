@@ -63,7 +63,12 @@ def make(
     monkeypatch.setenv("GRAMPS_MCP_UI", ui)
     gramps = FakeGramps({"jer": json.loads(json.dumps(JER))})
     server = FastMCP()
-    register_ui(server, gramps.client(), confirmation=confirmation)  # type: ignore[arg-type]
+    register_ui(
+        server,
+        gramps.client(),  # type: ignore[arg-type]
+        confirmation=confirmation,  # type: ignore[arg-type]
+        namespace="tree-test",
+    )
     return gramps, server
 
 
