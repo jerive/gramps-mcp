@@ -124,7 +124,7 @@ def edit_fields(
 
 
 # Which changes depend on which is read from the handles a body mentions, by the
-# name of the list it sits in, at any depth:
+# name of the field it sits in, at any depth:
 #
 # * OWNS: the object owns what it lists, so the listed object needs its owner.
 #   Unticking a person unticks their birth, and through it the birth's notes;
@@ -132,13 +132,18 @@ def edit_fields(
 # * LINKS: a back reference or a shared label. The object does not need what it
 #   lists, and neither does the other side (a family lists its children, but the
 #   child needs its family, not the reverse).
-# * anything else (a parent of a family, the family of a child, the place of an
-#   event) is a need: the object needs what it mentions.
+# * REFS: a reference to something reusable, such as the place of an event. The
+#   object does not need it. A created object that only one change refers to, and
+#   that nothing owns, was created for that change and goes with it; one that
+#   several changes refer to stands alone.
+# * anything else (a parent of a family, the family of a child) is a need: the
+#   object needs what it mentions.
 #
-# An object left out is also taken out of the lists that mention it when the
-# rest is applied: see `drop_unselected_links`.
+# An object left out is also taken out of what mentions it when the rest is
+# applied: see `drop_unselected_links`.
 OWNS = frozenset({"event_ref_list", "note_list", "citation_list", "media_list"})
 LINKS = frozenset({"family_list", "child_ref_list", "tag_list"})
+REFS = frozenset({"place", "placeref_list", "source_handle", "reporef_list"})
 
 Ops = list[tuple[str, JsonObject | None]]
 
@@ -160,7 +165,15 @@ def _mentions(node: Any, kind: str = "needs") -> Iterator[tuple[str, str]]:
             yield from _mentions(item, kind)
     elif isinstance(node, dict):
         for key, value in node.items():
-            inner = "owns" if key in OWNS else "link" if key in LINKS else kind
+            inner = (
+                "owns"
+                if key in OWNS
+                else "link"
+                if key in LINKS
+                else "ref"
+                if key in REFS
+                else kind
+            )
             yield from _mentions(value, inner)
 
 
@@ -168,6 +181,8 @@ def direct_requirements(ops: Ops) -> list[set[int]]:
     """Per change, the changes whose created object it needs."""
     created = _created_handles(ops)
     requirements: list[set[int]] = [set() for _ in ops]
+    owned: set[int] = set()
+    users: dict[int, set[int]] = {}
     for index, (_, body) in enumerate(ops):
         for text, kind in _mentions(body):
             other = created.get(text)
@@ -177,6 +192,12 @@ def direct_requirements(ops: Ops) -> list[set[int]]:
                 requirements[index].add(other)
             elif kind == "owns":
                 requirements[other].add(index)
+                owned.add(other)
+            elif kind == "ref":
+                users.setdefault(other, set()).add(index)
+    for other, referrers in users.items():
+        if len(referrers) == 1 and other not in owned:
+            requirements[other] |= referrers  # created for its only user
     return requirements
 
 
@@ -189,8 +210,11 @@ def _without(node: Any, left_out: set[str], inside: bool = False) -> Any:
         ]
         return kept if kept != node else node
     if isinstance(node, dict):
+        lists = OWNS | LINKS | REFS
         changed = {
-            key: _without(value, left_out, key in OWNS or key in LINKS or inside)
+            key: ""
+            if key in REFS and isinstance(value, str) and value in left_out
+            else _without(value, left_out, key in lists or inside)
             for key, value in node.items()
         }
         return changed if changed != node else node
@@ -204,7 +228,8 @@ def _points_to(item: Any, handles: set[str]) -> bool:
 
 def drop_unselected_links(ops: Ops, chosen: set[int]) -> list[JsonObject | None]:
     """The bodies to send: a chosen object no longer lists the created objects
-    that were unticked, in the lists of OWNS and LINKS. Same order as `ops`; a
+    that were unticked, in the fields of OWNS, LINKS and REFS (a single reference
+    becomes empty). Same order as `ops`; a
     body that needs no change is returned as it is."""
     created = _created_handles(ops)
     left_out = {handle for handle, index in created.items() if index not in chosen}

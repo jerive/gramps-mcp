@@ -189,14 +189,18 @@ clients that render MCP Apps, instead of asking for a confirmation:
   what it hangs under. Ticking a prerequisite again does not tick back what hung
   under it.
 
-  What belongs to what is read from the lists in each object: a person's or
+  What belongs to what is read from the fields of each object. A person's or
   family's `event_ref_list`, and any `note_list`, `citation_list` and
   `media_list`, belong to the object that lists them. A family needs the parents
-  it names and a child needs its family. The lists that only record a link
-  (`family_list`, `child_ref_list`, `tag_list`) do not make anything depend on
-  anything. When a change is left out, it is also taken out of the lists of the
-  changes that are applied: unticking the child creates the family without that
-  child, unticking the birth creates the person without it, and an edit whose
+  it names and a child needs its family. Links that only record a relation
+  (`family_list`, `child_ref_list`, `tag_list`) make nothing depend on anything.
+  A reference to something reusable, such as an event's `place`, does not make
+  the event depend on it either: a new place that only one change refers to
+  hangs under that change, as it was made for it, and goes with it; one that
+  several changes refer to stands on its own. When a change is left out, it is
+  also taken out of the changes that are applied: unticking the child creates
+  the family without that child, unticking the birth creates the person without
+  it, unticking a place creates the event without a place, and an edit whose
   only change was such a link is not sent.
 
 ![Mother, her birth with a note, her family and the child, as a tree](../assets/interactive-card-tree.png)
