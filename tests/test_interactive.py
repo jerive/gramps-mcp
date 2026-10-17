@@ -159,14 +159,41 @@ async def test_the_card_has_a_box_per_change_and_edit_fields(monkeypatch):
     assert len(find(card, "type", "Checkbox")) == 4
     assert len(find(card, "type", "Input")) == 3
     _, arguments = button_call(card)
-    # a change is sent as selected only if the changes it needs are too
-    assert arguments["selection"] == {
-        "0": "{{ s0 }}",
-        "1": "{{ s1 && s0 }}",
-        "2": "{{ s2 && s0 && s1 }}",
-        "3": "{{ s3 && s0 && s1 && s2 }}",
+    assert arguments["selection"] == {str(i): f"{{{{ s{i} }}}}" for i in range(4)}
+    texts = [
+        n["content"] for n in find(card, "content") if isinstance(n["content"], str)
+    ]
+    assert not any(t.startswith(("Needs", "Skipped")) for t in texts)
+
+
+async def test_boxes_follow_each_other_through_their_dependencies(monkeypatch):
+    _, server = make(monkeypatch)
+    card = (await show_card(server)).structured_content
+    boxes = find(card, "type", "Checkbox")
+
+    def sets(box: dict[str, Any]) -> dict[str, str]:
+        return {a["key"]: a["value"] for a in box["onChange"]}
+
+    # each box first writes its own value (Prefab does not once there is an
+    # on_change), then unticking unticks what needs it, ticking ticks what it needs
+    assert sets(boxes[0]) == {
+        "s0": "{{ $event }}",
+        "s1": "{{ s1 && $event }}",
+        "s2": "{{ s2 && $event }}",
+        "s3": "{{ s3 && $event }}",
     }
-    assert "Naissance d'Ileana" in json.dumps(card)  # it names what is needed
+    assert sets(boxes[1]) == {
+        "s1": "{{ $event }}",
+        "s2": "{{ s2 && $event }}",
+        "s3": "{{ s3 && $event }}",
+        "s0": "{{ s0 || $event }}",
+    }
+    assert sets(boxes[3]) == {
+        "s3": "{{ $event }}",
+        "s0": "{{ s0 || $event }}",
+        "s1": "{{ s1 || $event }}",
+        "s2": "{{ s2 || $event }}",
+    }
 
 
 async def test_without_the_extension_it_asks_like_before(monkeypatch):

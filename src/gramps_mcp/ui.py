@@ -145,28 +145,19 @@ def _detail(detail: Detail) -> None:
 def _change(
     view: ChangeView,
     *,
-    effective: Any = None,
-    blocked: Any = None,
+    index: int | None = None,
     fields: list[EditField] | None = None,
-    needs: list[str] | None = None,
 ) -> None:
     with Alert(variant=OP_VARIANTS[view.op], icon=TYPE_ICONS.get(view.type, "file")):
         with Row(gap=2, align="center"):
             Badge(OP_VERBS[view.op], variant=OP_VARIANTS[view.op])
             AlertTitle(f"{view.noun.capitalize()}: {view.title}")
-        if view.details or fields or needs:
+        if view.details or fields:
             with Column(gap=1, css_class="mt-1"):
                 for detail in view.details:
                     _detail(detail)
-                if needs:
-                    Muted("Needs: " + ", ".join(needs), css_class="text-sm italic")
-                    with If(blocked):
-                        Text(
-                            "Skipped: a change it needs is unticked.",
-                            css_class="text-sm font-medium",
-                        )
-                if fields and effective is not None:
-                    with If(effective):
+                if fields and index is not None:
+                    with If(getattr(STATE, f"s{index}")):
                         for edit in fields:
                             with Row(gap=2, align="center", css_class="text-sm"):
                                 Muted(f"{edit.label}:")
@@ -209,27 +200,22 @@ def _ref(name: str) -> str:
     return "{{ " + name + " }}"
 
 
-def _effective(i: int, requires: list[set[int]]) -> Any:
-    """Whether change `i` will be applied: its own box and the boxes of every
-    change it needs are ticked. Nothing is written back to the boxes, so the
-    user's own choices are kept and ticking a change again restores what it
-    needed."""
-    expr = getattr(STATE, f"s{i}")
-    for p in sorted(requires[i]):
-        expr = expr & getattr(STATE, f"s{p}")
-    return expr
+def _cascade(
+    i: int, requires: list[set[int]], required_by: list[set[int]]
+) -> list[Any]:
+    """What clicking box `i` does. `$event` is its new state.
 
-
-def _blocked(i: int, requires: list[set[int]]) -> Any:
-    """Ticked, yet skipped because a change it needs is not."""
-    needed = getattr(STATE, f"s{sorted(requires[i])[0]}") if requires[i] else None
-    for p in sorted(requires[i])[1:]:
-        needed = needed & getattr(STATE, f"s{p}")
-    return getattr(STATE, f"s{i}") & ~needed if needed is not None else None
-
-
-def _effective_ref(i: int, requires: list[set[int]]) -> str:
-    return _ref(" && ".join(f"s{n}" for n in [i, *sorted(requires[i])]))
+    First the box's own value is written to the state: when a Checkbox has an
+    `on_change`, Prefab no longer does it, and the box and the state drift
+    apart. Then unticking it unticks every change that needs it and ticking it
+    ticks every change it needs. Setting a box from an action does not fire that
+    box's own handler, so the sets are the whole transitive closure."""
+    actions: list[Any] = [SetState(f"s{i}", _ref("$event"))]
+    actions += [
+        SetState(f"s{d}", _ref(f"s{d} && $event")) for d in sorted(required_by[i])
+    ]
+    actions += [SetState(f"s{p}", _ref(f"s{p} || $event")) for p in sorted(requires[i])]
+    return actions
 
 
 def build_interactive(planned: list[Planned], token: str) -> PrefabApp:
@@ -249,7 +235,7 @@ def build_interactive(planned: list[Planned], token: str) -> PrefabApp:
         CONFIRM_TOOL,
         arguments={
             "token": token,
-            "selection": {str(i): _effective_ref(i, requires) for i in range(total)},
+            "selection": {str(i): _ref(f"s{i}") for i in range(total)},
             "edits": {f.key: _ref(f.key) for f in fields},
         },
         on_success=[
@@ -271,19 +257,22 @@ def build_interactive(planned: list[Planned], token: str) -> PrefabApp:
             views,
             "Review the changes",
             f"{total} change{plural}. Untick what you do not want, and fix a name "
-            "if it is misspelled. A change is skipped when one it needs is unticked.",
+            "if it is misspelled. Changes that depend on each other are ticked and "
+            "unticked together.",
         )
         with CardContent(), Column(gap=3):
             for i, change in enumerate(views):
                 with Row(gap=3, align="start"):
-                    Checkbox(name=f"s{i}", value=True)
+                    Checkbox(
+                        name=f"s{i}",
+                        value=True,
+                        on_change=_cascade(i, requires, required_by),  # type: ignore[call-arg]
+                    )
                     with Column(css_class="flex-1"):
                         _change(
                             change,
-                            effective=_effective(i, requires),
-                            blocked=_blocked(i, requires),
+                            index=i,
                             fields=[f for f in fields if f.op == i],
-                            needs=[views[p].title for p in sorted(requires[i])],
                         )
         with CardFooter():
             with If(STATE.done):

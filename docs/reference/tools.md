@@ -149,12 +149,13 @@ clients that render MCP Apps, instead of asking for a confirmation:
 
 ![The card of apply_changes: boxes, a name being fixed, buttons](../assets/interactive-card.png)
 
-- **Tick or untick** each change. A change is applied only if the changes it
-  needs are ticked too: the person that cites a created event, the family that
-  cites the created person, the father's edit that adds the family. Unticking
-  one marks what depends on it "Skipped" at once, keeping the user's own boxes,
-  so ticking it again brings them back.
-![The first change is unticked, so the three that need it are skipped](../assets/interactive-card-skipped.png)
+- **Tick or untick** each change. Changes that depend on each other follow
+  each other: the person that cites a created event, the family that cites the
+  created person, the father's edit that adds the family. Unticking a change
+  unticks every change that needs it, and ticking a change ticks every change it
+  needs. Ticking a prerequisite again does not tick what depended on it back.
+
+![The event is unticked, so everything that needs it is unticked too](../assets/interactive-card-cascade.png)
 
 - **Fix a name** before applying: a first name, surname, event description,
   place name, note text, title. Only these text fields of a created object, or
