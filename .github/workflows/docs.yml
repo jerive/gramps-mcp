@@ -3,7 +3,6 @@ name: Docs
 on:
   push:
     branches: [master]
-    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
     paths: [docs/**, mkdocs.yml, pyproject.toml, src/gramps_mcp/goql_docs.md, .github/workflows/docs.yml]
   pull_request:
     paths: [docs/**, mkdocs.yml, pyproject.toml, src/gramps_mcp/goql_docs.md, .github/workflows/docs.yml]
@@ -21,8 +20,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
       - run: uv run --only-group docs mkdocs build --strict
       - uses: actions/upload-pages-artifact@v3

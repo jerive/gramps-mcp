@@ -4,8 +4,8 @@ For a quick local test against a Gramps Web API instance you can already
 reach: no Redis, no OAuth, single user.
 
 ```sh
-# Pin to a release tag for reproducibility; drop @%%LATEST_TAG%% to track master instead.
-pip install "gramps-mcp @ git+https://github.com/jerive/gramps-mcp@%%LATEST_TAG%%"
+# Follows master. To pin a release, append @<tag>, for example @v0.5.0.
+pip install "gramps-mcp @ git+https://github.com/jerive/gramps-mcp"
 export GRAMPS_BACKEND_URL=http://localhost:5000
 export GRAMPS_MCP_TREES=MyTree
 export GRAMPS_MCP_TREE_MYTREE_USERNAME=myuser
