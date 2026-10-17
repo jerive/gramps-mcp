@@ -86,15 +86,16 @@ async def test_a_new_child_reads_as_names_not_handles():
     assert text == "\n".join(
         [
             "Apply these 4 change(s) to the tree?",
+            "",
             "1. Add event: Birth, 10 août 2010",
             "2. Add person: Ileana Viveret",
-            "    sex: female",
-            "    events: Birth, 10 août 2010",
+            "    - sex: female",
+            "    - events: Birth, 10 août 2010",
             "3. Add family: family of Jérôme Benoît Viveret",
-            "    father: Jérôme Benoît Viveret",
-            "    children: Ileana Viveret",
+            "    - father: Jérôme Benoît Viveret",
+            "    - children: Ileana Viveret",
             "4. Edit person: Jérôme Benoît Viveret (I0001)",
-            "    families: add family of Jérôme Benoît Viveret",
+            "    - families: add family of Jérôme Benoît Viveret",
         ]
     )
     assert "f8" not in text and "p7" not in text and "_list" not in text

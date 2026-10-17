@@ -261,11 +261,13 @@ def merge_changes(current: JsonObject, changes: JsonObject) -> JsonObject:
 
 
 def format_confirmation(planned: list[Planned], header: str | None = None) -> str:
-    lines = [header or f"Apply these {len(planned)} change(s) to the tree?"]
+    """The summary as text that is also valid Markdown: clients that render
+    Markdown show a list with the details nested under each change."""
+    lines = [header or f"Apply these {len(planned)} change(s) to the tree?", ""]
     for index, item in enumerate(planned, start=1):
         first, *rest = item.lines
         lines.append(f"{index}. {first}")
-        lines.extend(f"    {line}" for line in rest)
+        lines.extend(f"    - {line}" for line in rest)
     return "\n".join(lines)
 
 

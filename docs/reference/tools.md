@@ -47,16 +47,20 @@ in the same set), field names become words and a date changes as one line:
 
 ```
 Apply these 4 change(s) to the tree?
+
 1. Add event: Birth, 10 août 2010
 2. Add person: Ileana Viveret
-    sex: female
-    events: Birth, 10 août 2010
+    - sex: female
+    - events: Birth, 10 août 2010
 3. Add family: family of Jérôme Benoît Viveret
-    father: Jérôme Benoît Viveret
-    children: Ileana Viveret
+    - father: Jérôme Benoît Viveret
+    - children: Ileana Viveret
 4. Edit person: Jérôme Benoît Viveret (I0001)
-    families: add family of Jérôme Benoît Viveret
+    - families: add family of Jérôme Benoît Viveret
 ```
+
+The text is also valid Markdown, so clients that render it show a list with the
+details nested under each change.
 
 A reference that is not in the tree shows as "a person that is not in the tree"
 rather than a handle. Nothing is
