@@ -43,7 +43,10 @@ async def test_the_generic_tools_return_real_data():
         listed = await client.call_tool(
             tools["list_objects"], {"object_type": "people", "page": 1, "pagesize": 2}
         )
-        handle = json.loads(listed.content[0].text)[0]["handle"]
+        people = json.loads(listed.content[0].text)
+        if isinstance(people, dict):  # a list may come wrapped as {"result": [...]}
+            people = people["result"]
+        handle = people[0]["handle"]
         one = await client.call_tool(
             tools["get_object"], {"object_type": "people", "handle": handle}
         )
