@@ -1,16 +1,15 @@
 """Which planned changes depend on which, and which of their values can be edited.
 
-The interactive card lets the user untick changes and fix a value before
-applying. Unticking a change must also drop the changes that need it (a family
-that cites a person that is no longer created), and ticking one must bring back
-what it needs. A change needs another when its body mentions the handle that
-the other one creates.
+The interactive card lists the changes as a tree, lets the user untick some and
+fix a value, then apply. Unticking a change also unticks the changes under it
+(a family whose mother is no longer created, a note on a birth that is not), and
+ticking one brings back what it hangs under.
 """
 
 from __future__ import annotations
 
-import json
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -124,103 +123,128 @@ def edit_fields(
     return fields
 
 
-# Gramps records some links on both sides, or on the side of the owner only, and
-# going by the handles a body mentions would make every change need every other
-# (family -> child -> family: unticking the child would drop its mother).
+# Which changes depend on which is read from the handles a body mentions, by the
+# name of the list it sits in, at any depth:
 #
-# In a created object these lists only record a link that the other side owns,
-# so they do not make it need what they mention: a family lists its children,
-# and a person lists the families they head. The family needs its parents and a
-# child needs its family.
-LINK_LISTS: dict[str, tuple[str, ...]] = {
-    "people": ("family_list",),
-    "families": ("child_ref_list",),
-}
-# In a created or edited object, these lists name what belongs to it. The owner
-# does not need them, but a created event needs its owner: unticking the person
-# unticks their birth, unticking the birth leaves the person without it.
-OWNED_LISTS: dict[str, tuple[str, ...]] = {
-    "people": ("event_ref_list",),
-    "families": ("event_ref_list",),
-}
-Ops = list[tuple[str, str, JsonObject | None]]
+# * OWNS: the object owns what it lists, so the listed object needs its owner.
+#   Unticking a person unticks their birth, and through it the birth's notes;
+#   unticking only the birth leaves the person.
+# * LINKS: a back reference or a shared label. The object does not need what it
+#   lists, and neither does the other side (a family lists its children, but the
+#   child needs its family, not the reverse).
+# * anything else (a parent of a family, the family of a child, the place of an
+#   event) is a need: the object needs what it mentions.
+#
+# An object left out is also taken out of the lists that mention it when the
+# rest is applied: see `drop_unselected_links`.
+OWNS = frozenset({"event_ref_list", "note_list", "citation_list", "media_list"})
+LINKS = frozenset({"family_list", "child_ref_list", "tag_list"})
+
+Ops = list[tuple[str, JsonObject | None]]
 
 
 def _created_handles(ops: Ops) -> dict[str, int]:
     return {
         str(body["handle"]): index
-        for index, (op, _, body) in enumerate(ops)
+        for index, (op, body) in enumerate(ops)
         if op == "create" and body and body.get("handle")
     }
 
 
-def _soft_lists(op: str, type_: str) -> tuple[str, ...]:
-    links = LINK_LISTS.get(type_, ()) if op == "create" else ()
-    owned = OWNED_LISTS.get(type_, ()) if op in ("create", "update") else ()
-    return links + owned
-
-
-def _refs(entries: Any) -> list[str]:
-    if not isinstance(entries, list):
-        return []
-    return [
-        str(ref)
-        for e in entries
-        if (ref := e.get("ref") if isinstance(e, dict) else e) is not None
-    ]
+def _mentions(node: Any, kind: str = "needs") -> Iterator[tuple[str, str]]:
+    """Every string in `node` with the kind of list it is in."""
+    if isinstance(node, str):
+        yield node, kind
+    elif isinstance(node, list):
+        for item in node:
+            yield from _mentions(item, kind)
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            inner = "owns" if key in OWNS else "link" if key in LINKS else kind
+            yield from _mentions(value, inner)
 
 
 def direct_requirements(ops: Ops) -> list[set[int]]:
-    """Per change, the changes whose created handle it needs: those it mentions,
-    except in its link lists, plus the owner of each created thing it is listed
-    in."""
+    """Per change, the changes whose created object it needs."""
     created = _created_handles(ops)
-    requirements: list[set[int]] = []
-    for index, (op, type_, body) in enumerate(ops):
-        soft = _soft_lists(op, type_)
-        text = (
-            json.dumps(
-                {k: v for k, v in body.items() if k not in soft}, ensure_ascii=False
-            )
-            if body
-            else ""
-        )
-        requirements.append(
-            {j for handle, j in created.items() if j != index and f'"{handle}"' in text}
-        )
-    for index, (op, type_, body) in enumerate(ops):
-        if not body or op not in ("create", "update"):
-            continue
-        for key in OWNED_LISTS.get(type_, ()):
-            for ref in _refs(body.get(key)):
-                owned = created.get(ref)
-                if owned is not None and owned != index:
-                    requirements[owned].add(index)
+    requirements: list[set[int]] = [set() for _ in ops]
+    for index, (_, body) in enumerate(ops):
+        for text, kind in _mentions(body):
+            other = created.get(text)
+            if other is None or other == index:
+                continue
+            if kind == "needs":
+                requirements[index].add(other)
+            elif kind == "owns":
+                requirements[other].add(index)
     return requirements
 
 
+def _without(node: Any, left_out: set[str], inside: bool = False) -> Any:
+    if isinstance(node, list):
+        kept = [
+            _without(item, left_out, inside)
+            for item in node
+            if not (inside and _points_to(item, left_out))
+        ]
+        return kept if kept != node else node
+    if isinstance(node, dict):
+        changed = {
+            key: _without(value, left_out, key in OWNS or key in LINKS or inside)
+            for key, value in node.items()
+        }
+        return changed if changed != node else node
+    return node
+
+
+def _points_to(item: Any, handles: set[str]) -> bool:
+    ref = item.get("ref") if isinstance(item, dict) else item
+    return isinstance(ref, str) and ref in handles
+
+
 def drop_unselected_links(ops: Ops, chosen: set[int]) -> list[JsonObject | None]:
-    """The bodies to send: a chosen object no longer lists the links to created
-    objects that were unticked. Returns the bodies in the same order."""
+    """The bodies to send: a chosen object no longer lists the created objects
+    that were unticked, in the lists of OWNS and LINKS. Same order as `ops`; a
+    body that needs no change is returned as it is."""
     created = _created_handles(ops)
     left_out = {handle for handle, index in created.items() if index not in chosen}
-    bodies: list[JsonObject | None] = []
-    for index, (op, type_, body) in enumerate(ops):
-        lists = _soft_lists(op, type_)
-        if body is None or index not in chosen or not lists or not left_out:
-            bodies.append(body)
-            continue
-        kept = dict(body)
-        for key in lists:
-            entries = kept.get(key)
-            if isinstance(entries, list):
-                kept[key] = [
-                    e
-                    for e in entries
-                    if (e.get("ref") if isinstance(e, dict) else e) not in left_out
-                ]
-        bodies.append(kept if kept != body else body)
-    return bodies
+    if not left_out:
+        return [body for _, body in ops]
+    return [
+        _without(body, left_out) if body is not None and index in chosen else body
+        for index, (_, body) in enumerate(ops)
+    ]
+
+
+Outline = list[tuple[int, "Outline"]]
+
+
+def outline(direct: list[set[int]]) -> Outline:
+    """The changes as a tree: what is needed comes first and what needs it hangs
+    under it. A change that needs several others hangs under the first of them;
+    siblings keep the order they had."""
+    count = len(direct)
+    children: dict[int | None, list[int]] = {}
+    for index in range(count):
+        children.setdefault(min(direct[index]) if direct[index] else None, []).append(
+            index
+        )
+    seen: set[int] = set()
+
+    def build(parent: int | None) -> Outline:
+        branch: Outline = []
+        for index in children.get(parent, []):
+            if index not in seen:
+                seen.add(index)
+                branch.append((index, build(index)))
+        return branch
+
+    tree = build(None)
+    for index in range(count):  # changes that only need each other
+        if index not in seen:
+            seen.add(index)
+            tree.append((index, build(index)))
+    return tree
 
 
 def closure(direct: list[set[int]]) -> tuple[list[set[int]], list[set[int]]]:

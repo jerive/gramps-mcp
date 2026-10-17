@@ -99,6 +99,15 @@ async def show_card(server: FastMCP, operations: list[dict[str, Any]] = SCENARIO
         return await client.call_tool("apply_changes", {"operations": operations})
 
 
+def on_change(card: dict[str, Any], count: int) -> list[dict[str, str]]:
+    """What each box does when clicked, by the number of its change (the card
+    lists them as a tree, not in that order)."""
+    boxes = {b["name"]: b for b in find(card, "type", "Checkbox")}
+    return [
+        {a["key"]: a["value"] for a in boxes[f"s{i}"]["onChange"]} for i in range(count)
+    ]
+
+
 def button_call(card: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     (call,) = find(card, "action", "toolCall")
     return call["tool"], call["arguments"]
@@ -174,20 +183,14 @@ async def test_the_card_has_a_box_per_change_and_edit_fields(monkeypatch):
 async def test_boxes_follow_each_other_through_their_dependencies(monkeypatch):
     _, server = make(monkeypatch)
     card = (await show_card(server)).structured_content
-    boxes = find(card, "type", "Checkbox")
-
-    def sets(box: dict[str, Any]) -> dict[str, str]:
-        return {a["key"]: a["value"] for a in box["onChange"]}
-
-    # each box first writes its own value (Prefab does not once there is an
-    # on_change), then unticking unticks what needs it, ticking ticks what it needs
+    sets = on_change(card, 4)
     # the birth belongs to the person: unticking the person unticks the birth,
     # unticking the birth leaves the person
-    assert sets(boxes[0]) == {"s0": "{{ $event }}", "s1": "{{ s1 || $event }}"}
-    assert sets(boxes[1]) == {"s1": "{{ $event }}", "s0": "{{ s0 && $event }}"}
-    # the family only lists its child: neither box drags the other along
-    assert sets(boxes[2]) == {"s2": "{{ $event }}", "s3": "{{ s3 && $event }}"}
-    assert sets(boxes[3]) == {"s3": "{{ $event }}", "s2": "{{ s2 || $event }}"}
+    assert sets[0] == {"s0": "{{ $event }}", "s1": "{{ s1 || $event }}"}
+    assert sets[1] == {"s1": "{{ $event }}", "s0": "{{ s0 && $event }}"}
+    # the family and the father's edit only list people: nothing follows
+    assert sets[2] == {"s2": "{{ $event }}"}
+    assert sets[3] == {"s3": "{{ $event }}"}
 
 
 MOTHER_AND_CHILD: list[dict[str, Any]] = [
@@ -216,8 +219,7 @@ MOTHER_AND_CHILD: list[dict[str, Any]] = [
 async def test_unticking_the_child_keeps_the_mother_and_the_family(monkeypatch):
     gramps, server = make(monkeypatch)
     card = (await show_card(server, MOTHER_AND_CHILD)).structured_content
-    boxes = find(card, "type", "Checkbox")
-    sets = [{a["key"]: a["value"] for a in b["onChange"]} for b in boxes]
+    sets = on_change(card, 3)
     # unticking the child unticks nobody: it only brings back what it needs
     assert sets[1] == {
         "s1": "{{ $event }}",
@@ -461,8 +463,7 @@ async def test_a_birth_added_to_an_existing_person_can_be_left_out(monkeypatch):
         },
     ]
     card = (await show_card(server, operations)).structured_content
-    boxes = find(card, "type", "Checkbox")
-    values = [{a["key"]: a["value"] for a in b["onChange"]} for b in boxes]
+    values = on_change(card, 2)
     assert values[0]["s1"] == "{{ s1 || $event }}"  # tick the birth: the edit too
     assert values[1]["s0"] == "{{ s0 && $event }}"  # untick the edit: no birth
     # the birth is left out and the person is left alone

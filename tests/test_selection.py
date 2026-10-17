@@ -11,6 +11,7 @@ from gramps_mcp.selection import (
     edit_fields,
     get_path,
     missing_requirements,
+    outline,
     set_path,
 )
 
@@ -21,18 +22,17 @@ PERSON = {
 }
 
 # The scenario of the screenshot: an event that belongs to the person, the person,
-# a family (that only lists the person as a child), and the father's edit (needs
-# the family).
+# a family (that only lists the person as a child), and the father's edit, which
+# only lists the family.
 SCENARIO = [
-    ("create", "events", {"handle": "e6", "type": "Birth"}),
-    ("create", "people", PERSON),
+    ("create", {"handle": "e6", "type": "Birth"}),
+    ("create", PERSON),
     (
         "create",
-        "families",
         {"handle": "f8", "father_handle": "jer", "child_ref_list": [{"ref": "p7"}]},
     ),
-    ("update", "people", {"handle": "jer", "family_list": ["f8"]}),
-    ("delete", "people", None),
+    ("update", {"handle": "jer", "family_list": ["f8"]}),
+    ("delete", None),
 ]
 
 # A mother, her child and their family, as Gramps stores them: each side lists
@@ -40,22 +40,25 @@ SCENARIO = [
 MOTHER = {"handle": "m", "family_list": ["f"], "primary_name": {"first_name": "Ana"}}
 CHILD = {"handle": "c", "parent_family_list": ["f"], "primary_name": {}}
 FAMILY = {"handle": "f", "mother_handle": "m", "child_ref_list": [{"ref": "c"}]}
-FAMILY_OF_TWO = [
-    ("create", "people", MOTHER),
-    ("create", "people", CHILD),
-    ("create", "families", FAMILY),
+FAMILY_OF_TWO = [("create", MOTHER), ("create", CHILD), ("create", FAMILY)]
+
+# Three levels: a person, their birth, and a note on the birth.
+THREE_LEVELS = [
+    ("create", {"handle": "n", "text": {"string": "seen on the register"}}),
+    ("create", {"handle": "b", "type": "Birth", "note_list": ["n"]}),
+    ("create", {"handle": "p", "event_ref_list": [{"ref": "b", "role": "Primary"}]}),
 ]
 
 
-def test_a_change_needs_the_changes_that_create_what_it_mentions():
+def test_what_a_body_lists_is_owned_what_it_mentions_is_needed():
     # the birth belongs to the person; the family only lists its child
-    assert direct_requirements(SCENARIO) == [{1}, set(), set(), {2}, set()]
+    assert direct_requirements(SCENARIO) == [{1}, set(), set(), set(), set()]
 
 
 def test_dependencies_are_followed_all_the_way():
-    requires, required_by = closure(direct_requirements(SCENARIO))
-    assert requires == [{1}, set(), set(), {2}, set()]
-    assert required_by == [set(), {0}, {3}, set(), set()]
+    requires, required_by = closure(direct_requirements(THREE_LEVELS))
+    assert requires == [{1, 2}, {2}, set()]  # the note needs the birth and the person
+    assert required_by == [set(), {0}, {0, 1}]
 
 
 def test_unticking_the_mother_drops_the_family_and_the_child_not_the_reverse():
@@ -68,10 +71,9 @@ def test_unticking_the_mother_drops_the_family_and_the_child_not_the_reverse():
 
 
 def test_a_child_left_out_is_dropped_from_its_family():
-    ops = [(op, type_, body) for op, type_, body in FAMILY_OF_TWO]
-    bodies = drop_unselected_links(ops, {0, 2})
+    bodies = drop_unselected_links(FAMILY_OF_TWO, {0, 2})
     assert bodies[2] == {"handle": "f", "mother_handle": "m", "child_ref_list": []}
-    assert bodies[0] is MOTHER and ops[2][2] == FAMILY  # the input is untouched
+    assert bodies[0] is MOTHER and FAMILY["child_ref_list"] == [{"ref": "c"}]
 
 
 def test_a_family_left_out_is_dropped_from_the_mother():
@@ -79,29 +81,65 @@ def test_a_family_left_out_is_dropped_from_the_mother():
     assert bodies[0] == {**MOTHER, "family_list": []}
 
 
+def test_a_note_left_out_is_dropped_from_its_event_at_any_depth():
+    ops = [
+        ("create", {"handle": "n"}),
+        (
+            "update",
+            {
+                "handle": "jer",
+                "event_ref_list": [{"ref": "x", "note_list": ["n"], "role": "Primary"}],
+            },
+        ),
+    ]
+    bodies = drop_unselected_links(ops, {1})
+    assert bodies[1] == {
+        "handle": "jer",
+        "event_ref_list": [{"ref": "x", "note_list": [], "role": "Primary"}],
+    }
+
+
 def test_nothing_is_dropped_when_everything_is_selected():
     bodies = drop_unselected_links(FAMILY_OF_TWO, {0, 1, 2})
-    assert all(b is o[2] for b, o in zip(bodies, FAMILY_OF_TWO, strict=True))
+    assert all(b is o[1] for b, o in zip(bodies, FAMILY_OF_TWO, strict=True))
 
 
 def test_a_change_never_depends_on_itself_or_on_existing_objects():
-    ops = [("create", "people", {"handle": "a", "father_handle": "x", "self": "a"})]
+    ops = [("create", {"handle": "a", "father_handle": "x", "self": "a"})]
     assert direct_requirements(ops) == [set()]
 
 
 def test_dependencies_must_not_loop_forever():
     ops = [
-        ("create", "events", {"handle": "a", "ref": "b"}),
-        ("create", "events", {"handle": "b", "ref": "a"}),
+        ("create", {"handle": "a", "father_handle": "b"}),
+        ("create", {"handle": "b", "father_handle": "a"}),
     ]
     requires, required_by = closure(direct_requirements(ops))
     assert requires == [{1}, {0}] and required_by == [{1}, {0}]
+    assert outline(direct_requirements(ops)) == [(0, [(1, [])])]
+
+
+def test_the_outline_is_a_tree_with_what_is_needed_first():
+    assert outline(direct_requirements(THREE_LEVELS)) == [
+        (2, [(1, [(0, [])])])  # person > birth > note
+    ]
+    assert outline(direct_requirements(FAMILY_OF_TWO)) == [
+        (0, [(2, [(1, [])])])  # mother > family > child
+    ]
+    # siblings keep the order the changes had
+    assert outline(direct_requirements(SCENARIO)) == [
+        (1, [(0, [])]),
+        (2, []),
+        (3, []),
+        (4, []),
+    ]
 
 
 def test_missing_requirements_names_each_gap():
-    requires, _ = closure(direct_requirements(SCENARIO))
-    assert missing_requirements({0, 1, 2, 3, 4}, requires) == []
-    assert missing_requirements({0, 3, 4}, requires) == [(0, 1), (3, 2)]
+    requires, _ = closure(direct_requirements(THREE_LEVELS))
+    assert missing_requirements({0, 1, 2}, requires) == []
+    assert missing_requirements({0, 2}, requires) == [(0, 1)]
+    assert missing_requirements({0}, requires) == [(0, 1), (0, 2)]
     assert missing_requirements(set(), requires) == []
 
 
@@ -153,11 +191,10 @@ def test_a_good_edit_is_trimmed_and_may_have_accents_and_newlines_in_text():
 
 def test_a_birth_added_to_an_existing_person_belongs_to_that_edit():
     ops = [
-        ("create", "events", {"handle": "b", "type": "Birth"}),
-        ("update", "people", {"handle": "jer", "event_ref_list": [{"ref": "b"}]}),
+        ("create", {"handle": "b", "type": "Birth"}),
+        ("update", {"handle": "jer", "event_ref_list": [{"ref": "b"}]}),
     ]
     requires, required_by = closure(direct_requirements(ops))
     assert requires == [{1}, set()]  # untick the edit: the birth goes
     assert required_by == [set(), {0}]  # untick the birth: the edit stays
-    bodies = drop_unselected_links(ops, {1})
-    assert bodies[1] == {"handle": "jer", "event_ref_list": []}
+    assert drop_unselected_links(ops, {1})[1] == {"handle": "jer", "event_ref_list": []}

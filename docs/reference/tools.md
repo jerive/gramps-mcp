@@ -169,20 +169,24 @@ clients that render MCP Apps, instead of asking for a confirmation:
 
 ![The card of apply_changes: boxes, a name being fixed, buttons](../assets/interactive-card.png)
 
-- **Tick or untick** each change. Changes that depend on each other follow
-  each other: the person that cites a created event, the family that names a
-  created parent, the father's edit that adds the family. Unticking a change
-  unticks every change that needs it, and ticking a change ticks every change it
-  needs. Ticking a prerequisite again does not tick what depended on it back.
-  The direction follows how Gramps links people: a family needs its parents and a
-  child needs its family, so unticking the mother unticks the family and the
-  child. Unticking the child only leaves it out of the family, which is created
-  without it; likewise a created person whose family is unticked is created
-  without that link. An event belongs to the person or family that lists it:
-  unticking the person unticks their birth, and unticking the birth leaves the
-  person without it.
+- **Tick or untick** each change. The changes are shown as a tree: a change
+  hangs under the one it belongs to. A birth hangs under its person and a note
+  under the birth, a family under its mother and the child under the family.
+  Unticking a change unticks everything under it, and ticking a change ticks
+  what it hangs under. Ticking a prerequisite again does not tick back what hung
+  under it.
 
-![The event is unticked, so everything that needs it is unticked too](../assets/interactive-card-cascade.png)
+  What belongs to what is read from the lists in each object: a person's or
+  family's `event_ref_list`, and any `note_list`, `citation_list` and
+  `media_list`, belong to the object that lists them. A family needs the parents
+  it names and a child needs its family. The lists that only record a link
+  (`family_list`, `child_ref_list`, `tag_list`) do not make anything depend on
+  anything. When a change is left out, it is also taken out of the lists of the
+  changes that are applied: unticking the child creates the family without that
+  child, unticking the birth creates the person without it, and an edit whose
+  only change was such a link is not sent.
+
+![Mother, her birth with a note, her family and the child, as a tree](../assets/interactive-card-tree.png)
 
 - **Fix a name** before applying: a first name, surname, event description,
   place name, note text, title. Only these text fields of a created object, or

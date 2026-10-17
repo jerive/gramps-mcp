@@ -65,12 +65,14 @@ from .core import logger
 from .selection import (
     EditError,
     EditField,
+    Outline,
     check_edit,
     closure,
     direct_requirements,
     drop_unselected_links,
     edit_fields,
     missing_requirements,
+    outline,
     set_path,
 )
 from .summary import ChangeView, Detail
@@ -221,9 +223,8 @@ def build_interactive(planned: list[Planned], token: str) -> PrefabApp:
     """The card of `apply_changes`: tick, edit, apply."""
     views = [p.view for p in planned if p.view is not None]
     fields = edit_fields([(p.op, p.type, p.body, p.current) for p in planned])
-    requires, required_by = closure(
-        direct_requirements([(p.op, p.type, p.body) for p in planned])
-    )
+    direct = direct_requirements([(p.op, p.body) for p in planned])
+    requires, required_by = closure(direct)
     total = len(views)
 
     state: dict[str, Any] = {f"s{i}": True for i in range(total)}
@@ -256,23 +257,27 @@ def build_interactive(planned: list[Planned], token: str) -> PrefabApp:
             views,
             "Review the changes",
             f"{total} change{plural}. Untick what you do not want, and fix a name "
-            "if it is misspelled. Changes that depend on each other are ticked and "
-            "unticked together.",
+            "if it is misspelled. A change sits under the one it belongs to: unticking "
+            "that one unticks what hangs under it.",
         )
+
+        def row(i: int, branch: Outline) -> None:
+            with Row(gap=3, align="start"):
+                Checkbox(
+                    name=f"s{i}",
+                    value=True,
+                    on_change=_cascade(i, requires, required_by),  # type: ignore[call-arg]
+                )
+                with Column(css_class="flex-1"):
+                    _change(views[i], index=i, fields=[f for f in fields if f.op == i])
+            if branch:
+                with Column(gap=3, css_class="pl-6"):
+                    for child, below in branch:
+                        row(child, below)
+
         with CardContent(), Column(gap=3):
-            for i, change in enumerate(views):
-                with Row(gap=3, align="start"):
-                    Checkbox(
-                        name=f"s{i}",
-                        value=True,
-                        on_change=_cascade(i, requires, required_by),  # type: ignore[call-arg]
-                    )
-                    with Column(css_class="flex-1"):
-                        _change(
-                            change,
-                            index=i,
-                            fields=[f for f in fields if f.op == i],
-                        )
+            for i, branch in outline(direct):
+                row(i, branch)
         with CardFooter():
             with If(STATE.done):
                 Text("{{ outcome }}")
@@ -445,9 +450,7 @@ def register_ui(
                 "not_applied", "No change was selected, so nothing was written."
             )
 
-        requires, _ = closure(
-            direct_requirements([(p.op, p.type, p.body) for p in planned])
-        )
+        requires, _ = closure(direct_requirements([(p.op, p.body) for p in planned]))
         gaps = missing_requirements(chosen, requires)
         if gaps:
             first, needed = gaps[0]
@@ -486,9 +489,7 @@ def register_ui(
         for index, (item, body) in enumerate(
             zip(
                 planned,
-                drop_unselected_links(
-                    [(p.op, p.type, p.body) for p in planned], chosen
-                ),
+                drop_unselected_links([(p.op, p.body) for p in planned], chosen),
                 strict=True,
             )
         ):
