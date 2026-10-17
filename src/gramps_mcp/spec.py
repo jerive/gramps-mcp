@@ -23,7 +23,7 @@ from .core import logger
 # arrived in 3.21 and GOQL's `MatchesQuery` in 3.23.
 MIN_API_VERSION = (3, 23)
 # The newest one it is tested against. Newer versions are used with a warning.
-TESTED_API_VERSION = (3, 23)
+TESTED_API_VERSION = (3, 24)
 
 OBJECT_TYPE_PARAM = "object_type"
 _TEMPLATE_TYPE = "people"
