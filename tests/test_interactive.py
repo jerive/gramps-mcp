@@ -181,24 +181,60 @@ async def test_boxes_follow_each_other_through_their_dependencies(monkeypatch):
 
     # each box first writes its own value (Prefab does not once there is an
     # on_change), then unticking unticks what needs it, ticking ticks what it needs
-    assert sets(boxes[0]) == {
+    assert sets(boxes[0]) == {"s0": "{{ $event }}", "s1": "{{ s1 && $event }}"}
+    assert sets(boxes[1]) == {"s1": "{{ $event }}", "s0": "{{ s0 || $event }}"}
+    # the family only lists its child: neither box drags the other along
+    assert sets(boxes[2]) == {"s2": "{{ $event }}", "s3": "{{ s3 && $event }}"}
+    assert sets(boxes[3]) == {"s3": "{{ $event }}", "s2": "{{ s2 || $event }}"}
+
+
+MOTHER_AND_CHILD: list[dict[str, Any]] = [
+    {
+        "op": "create",
+        "type": "people",
+        "object": {"handle": "m", "family_list": ["f"], "primary_name": {}},
+    },
+    {
+        "op": "create",
+        "type": "people",
+        "object": {"handle": "c", "parent_family_list": ["f"], "primary_name": {}},
+    },
+    {
+        "op": "create",
+        "type": "families",
+        "object": {
+            "handle": "f",
+            "mother_handle": "m",
+            "child_ref_list": [{"ref": "c"}],
+        },
+    },
+]
+
+
+async def test_unticking_the_child_keeps_the_mother_and_the_family(monkeypatch):
+    gramps, server = make(monkeypatch)
+    card = (await show_card(server, MOTHER_AND_CHILD)).structured_content
+    boxes = find(card, "type", "Checkbox")
+    sets = [{a["key"]: a["value"] for a in b["onChange"]} for b in boxes]
+    # unticking the child unticks nobody: it only brings back what it needs
+    assert sets[1] == {
+        "s1": "{{ $event }}",
+        "s0": "{{ s0 || $event }}",
+        "s2": "{{ s2 || $event }}",
+    }
+    # unticking the mother unticks her family and, through it, the child
+    assert sets[0] == {
         "s0": "{{ $event }}",
         "s1": "{{ s1 && $event }}",
         "s2": "{{ s2 && $event }}",
-        "s3": "{{ s3 && $event }}",
     }
-    assert sets(boxes[1]) == {
-        "s1": "{{ $event }}",
-        "s2": "{{ s2 && $event }}",
-        "s3": "{{ s3 && $event }}",
-        "s0": "{{ s0 || $event }}",
-    }
-    assert sets(boxes[3]) == {
-        "s3": "{{ $event }}",
-        "s0": "{{ s0 || $event }}",
-        "s1": "{{ s1 || $event }}",
-        "s2": "{{ s2 || $event }}",
-    }
+
+    outcome = await confirm(server, card, {"0": True, "1": False, "2": True})
+    assert outcome.status == "applied" and len(outcome.applied) == 2
+    assert [c[1] for c in writes(gramps)] == ["/api/people/", "/api/families/"]
+    assert "c" not in gramps.objects
+    assert gramps.objects["f"]["child_ref_list"] == []
+    assert gramps.objects["m"]["family_list"] == ["f"]
 
 
 async def test_without_the_extension_it_asks_like_before(monkeypatch):

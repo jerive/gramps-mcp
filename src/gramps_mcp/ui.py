@@ -68,6 +68,7 @@ from .selection import (
     check_edit,
     closure,
     direct_requirements,
+    drop_unselected_links,
     edit_fields,
     missing_requirements,
     set_path,
@@ -221,7 +222,7 @@ def build_interactive(planned: list[Planned], token: str) -> PrefabApp:
     views = [p.view for p in planned if p.view is not None]
     fields = edit_fields([(p.op, p.type, p.body, p.current) for p in planned])
     requires, required_by = closure(
-        direct_requirements([(p.op, p.body) for p in planned])
+        direct_requirements([(p.op, p.type, p.body) for p in planned])
     )
     total = len(views)
 
@@ -436,7 +437,9 @@ def register_ui(
                 "not_applied", "No change was selected, so nothing was written."
             )
 
-        requires, _ = closure(direct_requirements([(p.op, p.body) for p in planned]))
+        requires, _ = closure(
+            direct_requirements([(p.op, p.type, p.body) for p in planned])
+        )
         gaps = missing_requirements(chosen, requires)
         if gaps:
             first, needed = gaps[0]
@@ -470,7 +473,16 @@ def register_ui(
                 applied_edits += 1
             except EditError as exc:
                 return _refused("invalid", str(exc))
-        if applied_edits:
+        links_dropped = False
+        for item, body in zip(
+            planned,
+            drop_unselected_links([(p.op, p.type, p.body) for p in planned], chosen),
+            strict=True,
+        ):
+            if body is not item.body:
+                item.body = body
+                links_dropped = True
+        if applied_edits or links_dropped:
             await describe_all(client, planned)
 
         logger.info(

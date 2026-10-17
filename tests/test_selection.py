@@ -7,6 +7,7 @@ from gramps_mcp.selection import (
     check_edit,
     closure,
     direct_requirements,
+    drop_unselected_links,
     edit_fields,
     get_path,
     missing_requirements,
@@ -20,38 +21,77 @@ PERSON = {
 }
 
 # The scenario of the screenshot: event, person (needs the event), family
-# (needs the person), and the father's edit (needs the family).
+# (lists the person as a child), and the father's edit (needs the family).
 SCENARIO = [
-    ("create", {"handle": "e6", "type": "Birth"}),
-    ("create", PERSON),
+    ("create", "events", {"handle": "e6", "type": "Birth"}),
+    ("create", "people", PERSON),
     (
         "create",
+        "families",
         {"handle": "f8", "father_handle": "jer", "child_ref_list": [{"ref": "p7"}]},
     ),
-    ("update", {"handle": "jer", "family_list": ["f8"]}),
-    ("delete", None),
+    ("update", "people", {"handle": "jer", "family_list": ["f8"]}),
+    ("delete", "people", None),
+]
+
+# A mother, her child and their family, as Gramps stores them: each side lists
+# the other.
+MOTHER = {"handle": "m", "family_list": ["f"], "primary_name": {"first_name": "Ana"}}
+CHILD = {"handle": "c", "parent_family_list": ["f"], "primary_name": {}}
+FAMILY = {"handle": "f", "mother_handle": "m", "child_ref_list": [{"ref": "c"}]}
+FAMILY_OF_TWO = [
+    ("create", "people", MOTHER),
+    ("create", "people", CHILD),
+    ("create", "families", FAMILY),
 ]
 
 
 def test_a_change_needs_the_changes_that_create_what_it_mentions():
-    assert direct_requirements(SCENARIO) == [set(), {0}, {1}, {2}, set()]
+    # the family only lists its child, which is not a need
+    assert direct_requirements(SCENARIO) == [set(), {0}, set(), {2}, set()]
 
 
 def test_dependencies_are_followed_all_the_way():
     requires, required_by = closure(direct_requirements(SCENARIO))
-    assert requires == [set(), {0}, {0, 1}, {0, 1, 2}, set()]
-    assert required_by == [{1, 2, 3}, {2, 3}, {3}, set(), set()]
+    assert requires == [set(), {0}, set(), {2}, set()]
+    assert required_by == [{1}, set(), {3}, set(), set()]
+
+
+def test_unticking_the_mother_drops_the_family_and_the_child_not_the_reverse():
+    requires, required_by = closure(direct_requirements(FAMILY_OF_TWO))
+    # the family needs its mother; the child needs its family, so the mother
+    assert requires == [set(), {0, 2}, {0}]
+    assert required_by[0] == {1, 2}  # untick the mother: family and child go
+    assert required_by[1] == set()  # untick the child: nothing else goes
+    assert required_by[2] == {1}
+
+
+def test_a_child_left_out_is_dropped_from_its_family():
+    ops = [(op, type_, body) for op, type_, body in FAMILY_OF_TWO]
+    bodies = drop_unselected_links(ops, {0, 2})
+    assert bodies[2] == {"handle": "f", "mother_handle": "m", "child_ref_list": []}
+    assert bodies[0] is MOTHER and ops[2][2] == FAMILY  # the input is untouched
+
+
+def test_a_family_left_out_is_dropped_from_the_mother():
+    bodies = drop_unselected_links(FAMILY_OF_TWO, {0})
+    assert bodies[0] == {**MOTHER, "family_list": []}
+
+
+def test_nothing_is_dropped_when_everything_is_selected():
+    bodies = drop_unselected_links(FAMILY_OF_TWO, {0, 1, 2})
+    assert all(b is o[2] for b, o in zip(bodies, FAMILY_OF_TWO, strict=True))
 
 
 def test_a_change_never_depends_on_itself_or_on_existing_objects():
-    ops = [("create", {"handle": "a", "father_handle": "existing", "self": "a"})]
+    ops = [("create", "people", {"handle": "a", "father_handle": "x", "self": "a"})]
     assert direct_requirements(ops) == [set()]
 
 
 def test_dependencies_must_not_loop_forever():
     ops = [
-        ("create", {"handle": "a", "ref": "b"}),
-        ("create", {"handle": "b", "ref": "a"}),
+        ("create", "events", {"handle": "a", "ref": "b"}),
+        ("create", "events", {"handle": "b", "ref": "a"}),
     ]
     requires, required_by = closure(direct_requirements(ops))
     assert requires == [{1}, {0}] and required_by == [{1}, {0}]
@@ -60,7 +100,7 @@ def test_dependencies_must_not_loop_forever():
 def test_missing_requirements_names_each_gap():
     requires, _ = closure(direct_requirements(SCENARIO))
     assert missing_requirements({0, 1, 2, 3, 4}, requires) == []
-    assert missing_requirements({2, 4}, requires) == [(2, 0), (2, 1)]
+    assert missing_requirements({1, 3, 4}, requires) == [(1, 0), (3, 2)]
     assert missing_requirements(set(), requires) == []
 
 

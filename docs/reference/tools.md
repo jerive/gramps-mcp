@@ -170,10 +170,15 @@ clients that render MCP Apps, instead of asking for a confirmation:
 ![The card of apply_changes: boxes, a name being fixed, buttons](../assets/interactive-card.png)
 
 - **Tick or untick** each change. Changes that depend on each other follow
-  each other: the person that cites a created event, the family that cites the
-  created person, the father's edit that adds the family. Unticking a change
+  each other: the person that cites a created event, the family that names a
+  created parent, the father's edit that adds the family. Unticking a change
   unticks every change that needs it, and ticking a change ticks every change it
   needs. Ticking a prerequisite again does not tick what depended on it back.
+  The direction follows how Gramps links people: a family needs its parents and a
+  child needs its family, so unticking the mother unticks the family and the
+  child. Unticking the child only leaves it out of the family, which is created
+  without it; likewise a created person whose family is unticked is created
+  without that link.
 
 ![The event is unticked, so everything that needs it is unticked too](../assets/interactive-card-cascade.png)
 
