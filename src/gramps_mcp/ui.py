@@ -65,11 +65,14 @@ from .core import logger
 from .selection import (
     EditError,
     EditField,
+    Outline,
     check_edit,
     closure,
     direct_requirements,
+    drop_unselected_links,
     edit_fields,
     missing_requirements,
+    outline,
     set_path,
 )
 from .summary import ChangeView, Detail
@@ -220,9 +223,8 @@ def build_interactive(planned: list[Planned], token: str) -> PrefabApp:
     """The card of `apply_changes`: tick, edit, apply."""
     views = [p.view for p in planned if p.view is not None]
     fields = edit_fields([(p.op, p.type, p.body, p.current) for p in planned])
-    requires, required_by = closure(
-        direct_requirements([(p.op, p.body) for p in planned])
-    )
+    direct = direct_requirements([(p.op, p.body) for p in planned])
+    requires, required_by = closure(direct)
     total = len(views)
 
     state: dict[str, Any] = {f"s{i}": True for i in range(total)}
@@ -255,23 +257,27 @@ def build_interactive(planned: list[Planned], token: str) -> PrefabApp:
             views,
             "Review the changes",
             f"{total} change{plural}. Untick what you do not want, and fix a name "
-            "if it is misspelled. Changes that depend on each other are ticked and "
-            "unticked together.",
+            "if it is misspelled. A change sits under the one it belongs to: unticking "
+            "that one unticks what hangs under it.",
         )
+
+        def row(i: int, branch: Outline) -> None:
+            with Row(gap=3, align="start"):
+                Checkbox(
+                    name=f"s{i}",
+                    value=True,
+                    on_change=_cascade(i, requires, required_by),  # type: ignore[call-arg]
+                )
+                with Column(css_class="flex-1"):
+                    _change(views[i], index=i, fields=[f for f in fields if f.op == i])
+            if branch:
+                with Column(gap=3, css_class="pl-6"):
+                    for child, below in branch:
+                        row(child, below)
+
         with CardContent(), Column(gap=3):
-            for i, change in enumerate(views):
-                with Row(gap=3, align="start"):
-                    Checkbox(
-                        name=f"s{i}",
-                        value=True,
-                        on_change=_cascade(i, requires, required_by),  # type: ignore[call-arg]
-                    )
-                    with Column(css_class="flex-1"):
-                        _change(
-                            change,
-                            index=i,
-                            fields=[f for f in fields if f.op == i],
-                        )
+            for i, branch in outline(direct):
+                row(i, branch)
         with CardFooter():
             with If(STATE.done):
                 Text("{{ outcome }}")
@@ -280,6 +286,14 @@ def build_interactive(planned: list[Planned], token: str) -> PrefabApp:
                     Button("Cancel", variant="outline", on_click=cancel)
                     Button("Apply", variant="success", on_click=apply)
     return PrefabApp(view=view, state=state)
+
+
+def _unchanged(body: Any, current: Any) -> bool:
+    """Whether an edited body is the stored object again, an emptied list that
+    the stored object did not have counting as nothing."""
+    if not isinstance(body, dict) or not isinstance(current, dict):
+        return False
+    return {k: v for k, v in body.items() if v != [] or k in current} == current
 
 
 def _payload(card: PrefabApp, app_name: str) -> dict[str, Any]:
@@ -470,7 +484,21 @@ def register_ui(
                 applied_edits += 1
             except EditError as exc:
                 return _refused("invalid", str(exc))
-        if applied_edits:
+        links_dropped = False
+        emptied: set[int] = set()
+        for index, (item, body) in enumerate(
+            zip(
+                planned,
+                drop_unselected_links([(p.op, p.body) for p in planned], chosen),
+                strict=True,
+            )
+        ):
+            if body is not item.body:
+                item.body = body
+                links_dropped = True
+                if item.op == "update" and _unchanged(body, item.current):
+                    emptied.add(index)  # its only change was a link left out
+        if applied_edits or links_dropped:
             await describe_all(client, planned)
 
         logger.info(
@@ -480,7 +508,12 @@ def register_ui(
             applied_edits,
         )
         store.discard(token)
-        result = await execute(client, [planned[i] for i in sorted(chosen)])
+        todo = [planned[i] for i in sorted(chosen - emptied)]
+        if not todo:
+            return _refused(
+                "not_applied", "Nothing is left to apply, so nothing was written."
+            )
+        result = await execute(client, todo)
         return _outcome(result)
 
     server.add_provider(app)
