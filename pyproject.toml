@@ -1,6 +1,6 @@
 [project]
 name = "gramps-mcp"
-version = "0.5.1"
+dynamic = ["version"]
 description = "Unofficial MCP server exposing a Gramps Web API instance to LLM assistants"
 readme = "README.md"
 license = { text = "MIT" }
@@ -23,8 +23,12 @@ Issues = "https://github.com/jerive/gramps-mcp/issues"
 gramps-mcp = "gramps_mcp.server:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+raw-options = { fallback_version = "0.0.0" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gramps_mcp"]

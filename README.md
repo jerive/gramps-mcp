@@ -59,8 +59,9 @@ You need a running [Gramps Web API](https://github.com/gramps-project/gramps-web
 instance with a tree, a Gramps Web user for that tree, and Python 3.12+.
 
 ```sh
-# Pin to a release tag for reproducibility; drop @v0.5.1 to track master instead.
-pip install "gramps-mcp @ git+https://github.com/jerive/gramps-mcp@v0.5.1"
+# Tracks master. For reproducibility, pin a release by appending @<tag>, for
+# example @v0.5.1; the tags are listed on the Releases page.
+pip install "gramps-mcp @ git+https://github.com/jerive/gramps-mcp"
 export GRAMPS_BACKEND_URL=http://localhost:5000
 export GRAMPS_MCP_TREES=MyTree
 export GRAMPS_MCP_TREE_MYTREE_USERNAME=myuser
