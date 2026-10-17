@@ -155,6 +155,8 @@ class Labeler:
         self._cache: dict[tuple[str, str], str] = {}
 
     async def label(self, type_: str, handle: str, depth: int = 0) -> str:
+        if not handle:
+            return "nothing"  # an empty handle would ask for the whole list
         key = (type_, handle)
         if key in self._cache:
             return self._cache[key]
@@ -166,7 +168,8 @@ class Labeler:
                 f"/api/{type_}/{handle}", params={"profile": "self"}
             )
             if response.status_code < 400:
-                obj = response.json()
+                found = response.json()
+                obj = found if isinstance(found, dict) else None
         text = await self.name(type_, obj, depth) if obj else ""
         text = text or f"a {SINGULAR.get(type_, type_)} that is not in the tree"
         self._cache[key] = text
@@ -217,6 +220,8 @@ class Labeler:
     async def value(self, field: str, value: Any) -> str:
         reference = REFERENCES.get(field)
         if reference is not None:
+            if value in (None, "", [], {}):
+                return "nothing"
             return await self.label(reference[0], _handle(value, reference[1]))
         return scalar_text(field, value)
 

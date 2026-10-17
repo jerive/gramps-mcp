@@ -191,3 +191,74 @@ async def test_an_event_with_a_description_is_named_by_it():
         [{"op": "delete", "type": "events", "handle": "ev"}], {"ev": event}
     )
     assert "Delete event: Naissance de Ileana Viveret (10 août 2010) (E1)" in text
+
+
+def client_with_lists(objects: dict[str, dict[str, Any]]) -> httpx2.AsyncClient:
+    """Like Gramps: a collection path returns a list, whatever its parameters."""
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        parts = request.url.path.strip("/").split("/")
+        if len(parts) == 2:
+            return httpx2.Response(200, json=list(objects.values()))
+        handle = parts[-1]
+        if handle in objects:
+            return httpx2.Response(200, json=objects[handle])
+        return httpx2.Response(404, json={"error": {"message": "nope"}})
+
+    return httpx2.AsyncClient(
+        base_url="http://gramps", transport=httpx2.MockTransport(handler)
+    )
+
+
+async def summary_with_lists(
+    operations: list[dict[str, Any]], objects: dict[str, Any]
+) -> str:
+    planned = await plan(
+        client_with_lists(objects), OPERATIONS.validate_python(operations)
+    )
+    return format_confirmation(planned)
+
+
+async def test_an_empty_place_does_not_ask_for_the_list_of_places():
+    # Gramps answers /api/places/ with a list: an event created with `place: ""`
+    # used to crash the summary ('list' object has no attribute 'get')
+    text = await summary_with_lists(
+        [
+            {
+                "op": "create",
+                "type": "events",
+                "object": {"type": "Marriage", "place": "", "description": "Mariage"},
+            }
+        ],
+        {},
+    )
+    assert "Add event" in text
+
+
+async def test_clearing_a_place_says_so():
+    event = {"handle": "e1", "type": "Marriage", "place": "pl1", "description": "x"}
+    place = {"handle": "pl1", "name": {"value": "São Paulo, Brésil"}}
+    text = await summary_with_lists(
+        [{"op": "update", "type": "events", "handle": "e1", "changes": {"place": ""}}],
+        {"e1": event, "pl1": place},
+    )
+    assert "São Paulo, Brésil" in text and "nothing" in text
+
+
+async def test_an_event_in_a_place_created_in_the_same_set_names_the_place():
+    text = await summary_with_lists(
+        [
+            {
+                "op": "create",
+                "type": "places",
+                "object": {"handle": "sp", "name": {"value": "São Paulo, Brésil"}},
+            },
+            {
+                "op": "create",
+                "type": "events",
+                "object": {"type": "Marriage", "place": "sp"},
+            },
+        ],
+        {},
+    )
+    assert "place: São Paulo, Brésil" in text
