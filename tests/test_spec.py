@@ -227,3 +227,44 @@ def test_the_spec_is_read_from_the_backend(monkeypatch):
     monkeypatch.setattr(spec.httpx2, "get", fake_get)
     assert spec.fetch_openapi_spec()["info"]["version"] == "3.23.1"
     assert seen == [f"{spec.GRAMPS_BACKEND_URL}/api/openapi.json"]
+
+
+COMPONENTS = {
+    "components": {
+        "schemas": {
+            "Place": {
+                "type": "object",
+                "properties": {
+                    "lat": {"type": "string", "description": "Latitude."},
+                    "name": {
+                        "description": "Primary name.",
+                        "allOf": [{"$ref": "#/components/schemas/PlaceName"}],
+                    },
+                    "profile": {"type": "object"},
+                    "backlinks": {"type": "array"},
+                },
+            },
+            "PlaceName": {
+                "type": "object",
+                "description": "dropped",
+                "properties": {"value": {"type": "string", "description": "dropped"}},
+            },
+        }
+    }
+}
+
+
+def test_the_schema_of_each_object_comes_from_the_spec():
+    from gramps_mcp.spec import object_schemas
+
+    schemas = object_schemas(COMPONENTS, {"places": "Place", "people": "Person"})
+    assert list(schemas) == ["places"]  # Person is not in this spec
+    place = schemas["places"]["properties"]
+    assert "profile" not in place and "backlinks" not in place  # read-only
+    assert place["lat"] == {"type": "string", "description": "Latitude."}
+    # a reference is inlined; the field keeps its description, the target loses its own
+    assert place["name"]["description"] == "Primary name."
+    assert place["name"]["allOf"][0] == {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+    }

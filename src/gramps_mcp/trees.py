@@ -12,7 +12,7 @@ from fastmcp import FastMCP
 from fastmcp.server.providers.openapi.routing import MCPType
 from fastmcp.utilities.openapi import HTTPRoute
 
-from .changes import register_apply_changes
+from .changes import OBJECT_CLASSES, register_apply_changes, set_object_schemas
 from .core import (
     GRAMPS_BACKEND_URL,
     build_body_handle_injection_hook,
@@ -21,7 +21,7 @@ from .core import (
     require_tree_member,
     start_token_refresh_loop,
 )
-from .spec import prepare_spec
+from .spec import object_schemas, prepare_spec
 from .ui import register_ui, ui_enabled
 
 # The read tools of a tree: the business objects, and a few ways to find and
@@ -184,6 +184,9 @@ def mount_tree(project: str, openapi_spec: dict[str, Any], mcp: FastMCP) -> None
             component.output_schema = None
 
     namespace = f"tree-{project.lower()}"
+    set_object_schemas(
+        object_schemas(openapi_spec, {t: c for t, c in OBJECT_CLASSES.items()})
+    )
     child = FastMCP.from_openapi(
         openapi_spec=prepare_spec(openapi_spec, read_tools_mode(), OBJECT_TYPES),
         client=client,

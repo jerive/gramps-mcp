@@ -93,13 +93,49 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+# What the model is shown for the `object` of a `create`, by type: the schema of
+# the backend's spec (see `spec.object_schemas`). Set once at startup, before the
+# tools are registered; empty, the object is just an object.
+OBJECT_SCHEMAS: dict[str, JsonObject] = {}
+# Fields that a created object of this type must carry. A place with no map
+# position is of little use, and the model leaves out what nothing asks for.
+REQUIRED_ON_CREATE = {"places": ("name", "lat", "long")}
+PLACE_HINT = (
+    'A place needs its `name` ({"value": "City, Country"}) and its `lat` and `long` '
+    '(decimal degrees as text, e.g. "-23.5505" and "-46.6333"; empty strings only '
+    "if you really do not know them)."
+)
+
+
+def set_object_schemas(schemas: dict[str, JsonObject]) -> None:
+    OBJECT_SCHEMAS.clear()
+    OBJECT_SCHEMAS.update(schemas)
+
+
+def _show_object_schemas(schema: JsonObject) -> None:
+    if not OBJECT_SCHEMAS:
+        return
+    required = REQUIRED_ON_CREATE
+    variants = [
+        {**s, "required": list(required[t])} if t in required else s
+        for t, s in OBJECT_SCHEMAS.items()
+    ]
+    schema["properties"]["object"] = {
+        **schema["properties"]["object"],
+        "anyOf": variants,
+    }
+
+
 class CreateOperation(_Strict):
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_show_object_schemas)
+
     op: Literal["create"]
     type: ObjectType
     object: JsonObject = Field(
         description=(
-            "The full Gramps object to add. `_class` may be left out; if given it "
-            "must match `type`. `handle` may be left out: one is assigned."
+            "The full Gramps object to add; its fields are those of the schema "
+            "named like `type`. `_class` may be left out; if given it must match "
+            "`type`. `handle` may be left out: one is assigned. " + PLACE_HINT
         )
     )
 
@@ -114,7 +150,14 @@ class CreateOperation(_Strict):
         forbidden = sorted(READ_ONLY_FIELDS & self.object.keys())
         if forbidden:
             raise ValueError(f"read-only fields cannot be set: {forbidden}")
-        self.object = {**self.object, "_class": expected}
+        body = {**self.object, "_class": expected}
+        missing = [k for k in REQUIRED_ON_CREATE.get(self.type, ()) if k not in body]
+        if missing:
+            raise ValueError(f"missing {missing}: {PLACE_HINT}")
+        for key in ("lat", "long"):
+            if self.type == "places" and isinstance(body[key], int | float):
+                body[key] = str(body[key])
+        self.object = body
         return self
 
 

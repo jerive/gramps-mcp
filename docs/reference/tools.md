@@ -53,6 +53,18 @@ of 1 to 20 operations, in order:
 | `update` | `type`, `handle`, `changes` | Merge `changes`, a nested object holding only the changed fields, into the current object. A list replaces the whole list. |
 | `delete` | `type`, `handle` | Delete the object. |
 
+The `object` of a `create` is shown to the model with the schema of its `type`,
+read from your Gramps Web API's own OpenAPI document at startup (fields, types
+and descriptions of `Person`, `Family`, `Event`, `Place` and so on, without the
+fields the server computes). The server does not validate against it: Gramps
+does, and is stricter. The schema is there so the model knows which fields exist.
+It makes `apply_changes` the largest tool of a tree, about 28 KB of definition.
+
+A created place must carry `name`, `lat` and `long` (decimal degrees as text; a
+number is accepted and written as text; empty strings mean "unknown"). A place
+without a map position is of little use, and a model leaves out what nothing
+asks for.
+
 `type` is one of `people`, `families`, `events`, `places`, `citations`,
 `sources`, `repositories`, `media`, `notes`, `tags`. Unknown keys are refused,
 as are `handle`, `_class` and the read-only fields (`backlinks`, `extended`,
