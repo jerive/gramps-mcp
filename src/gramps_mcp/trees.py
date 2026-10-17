@@ -183,6 +183,7 @@ def mount_tree(project: str, openapi_spec: dict[str, Any], mcp: FastMCP) -> None
         if hasattr(component, "output_schema"):
             component.output_schema = None
 
+    namespace = f"tree-{project.lower()}"
     child = FastMCP.from_openapi(
         openapi_spec=prepare_spec(openapi_spec, read_tools_mode(), OBJECT_TYPES),
         client=client,
@@ -191,7 +192,7 @@ def mount_tree(project: str, openapi_spec: dict[str, Any], mcp: FastMCP) -> None
         mcp_component_fn=customize_component,
     )
     if ui_enabled():
-        register_ui(child, client, auth=tree_check)
+        register_ui(child, client, auth=tree_check, namespace=namespace)
     else:
         register_apply_changes(child, client, auth=tree_check)
-    mcp.mount(child, namespace=f"tree-{project.lower()}")
+    mcp.mount(child, namespace=namespace)

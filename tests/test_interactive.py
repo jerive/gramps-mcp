@@ -347,3 +347,45 @@ def test_pending_changes_expire_and_are_capped():
     store.add([], "b")
     store.add([], "c")
     assert store.get(first) is None
+
+
+async def test_with_several_trees_the_button_applies_to_its_own_tree(monkeypatch):
+    # Each tree is a mounted app. Apps with the same name make the button's tool
+    # ambiguous, and the host then refuses the call: nothing is applied.
+    monkeypatch.setenv("GRAMPS_MCP_UI", "prefab")
+    trees = {
+        name: FakeGramps({"jer": json.loads(json.dumps(JER))})
+        for name in ("tree-a", "tree-b")
+    }
+    root = FastMCP()
+    for name, gramps in trees.items():
+        child = FastMCP()
+        register_ui(
+            child,
+            gramps.client(),  # type: ignore[arg-type]
+            confirmation="required",
+            namespace=name,
+        )
+        root.mount(child, namespace=name)
+
+    async with with_ui(root) as client:
+        card = (
+            await client.call_tool("tree-b_apply_changes", {"operations": SCENARIO})
+        ).structured_content
+        tool, arguments = button_call(card)
+        assert tool == "tree-b_confirm_changes"
+        assert tool in {t.name for t in await client.list_tools()}
+        result = await client.call_tool(
+            tool,
+            {
+                **arguments,
+                "selection": {k: True for k in arguments["selection"]},
+                "edits": {
+                    k: str(v) for k, v in card["state"].items() if k.startswith("ed")
+                },
+            },
+            raise_on_error=False,
+        )
+
+    assert not result.is_error
+    assert writes(trees["tree-b"]) and not writes(trees["tree-a"])

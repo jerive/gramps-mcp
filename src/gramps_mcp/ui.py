@@ -283,13 +283,13 @@ def build_interactive(planned: list[Planned], token: str) -> PrefabApp:
     return PrefabApp(view=view, state=state)
 
 
-def _payload(card: PrefabApp) -> dict[str, Any]:
+def _payload(card: PrefabApp, app_name: str = APP_NAME) -> dict[str, Any]:
     """The card as the host receives it, with the button's tool call addressed
     to the tool this server lists under its own name."""
     try:
         from fastmcp.tools.base import _prefab_to_json
 
-        payload: dict[str, Any] = _prefab_to_json(card, fastmcp_app_name=APP_NAME)
+        payload: dict[str, Any] = _prefab_to_json(card, fastmcp_app_name=app_name)
         return payload
     except ImportError:  # pragma: no cover
         return card.to_json()
@@ -350,14 +350,21 @@ def register_ui(
     *,
     auth: Any = None,
     confirmation: Literal["required", "when-supported"] | None = None,
+    namespace: str | None = None,
 ) -> None:
     """Registers `apply_changes` with its interactive card and the
-    `confirm_changes` tool behind its button."""
+    `confirm_changes` tool behind its button.
+
+    Give each tree a distinct `namespace` (the one it is mounted under). FastMCP
+    addresses the button's tool by a hash of the app's name and the tool's name,
+    so apps with the same name collide once mounted together: the button's call
+    is then refused as ambiguous, and nothing is applied."""
     mode = confirmation or confirmation_mode()
     ui = ui_mode()
     core = make_apply(client, mode)
     store = PendingStore()
-    app = FastMCPApp(APP_NAME)
+    app_name = f"{APP_NAME}-{namespace}" if namespace else APP_NAME
+    app = FastMCPApp(app_name)
 
     @app.ui(
         name="apply_changes",
@@ -391,7 +398,7 @@ def register_ui(
         header = f"{len(planned)} change(s) waiting for the user's decision."
         return ToolResult(
             content=f"{CARD_NOTE}\n\n{format_confirmation(planned, header)}",
-            structured_content=_payload(card),
+            structured_content=_payload(card, app_name),
         )
 
     @app.tool(name=CONFIRM_TOOL, auth=auth)
