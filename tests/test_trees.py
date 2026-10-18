@@ -66,7 +66,7 @@ async def test_a_request_goes_through_the_client_of_its_tree():
 
 
 async def test_the_tools_are_shared_and_each_call_names_its_tree(monkeypatch):
-    monkeypatch.setenv("GRAMPS_MCP_UI", "")
+    monkeypatch.setenv("GRAMPS_MCP_UI", "off")
     monkeypatch.setattr(trees_module, "get_access_token", lambda: None)
     seen: list[tuple[str, str, str]] = []
     trees = Trees(

@@ -45,13 +45,16 @@ OPERATIONS: list[dict[str, Any]] = [
 ]
 
 
-def test_ui_is_off_unless_asked(monkeypatch):
+def test_ui_is_on_unless_turned_off(monkeypatch):
     monkeypatch.delenv("GRAMPS_MCP_UI", raising=False)
-    assert not ui_enabled()
+    assert ui_enabled()
     monkeypatch.setenv("GRAMPS_MCP_UI", " Prefab ")
     assert ui_enabled()
-    monkeypatch.setenv("GRAMPS_MCP_UI", "text")
+    monkeypatch.setenv("GRAMPS_MCP_UI", " Off ")
     assert not ui_enabled()
+    monkeypatch.setenv("GRAMPS_MCP_UI", "text")
+    with pytest.raises(ValueError, match="GRAMPS_MCP_UI"):
+        ui_enabled()
 
 
 @pytest.mark.parametrize("count", [1, 2])

@@ -177,8 +177,10 @@ The list lives in `EXCLUDED_ROUTE_PREFIXES` in `src/gramps_mcp/trees.py`; the re
 
 ## Interactive card (experimental)
 
-With `GRAMPS_MCP_UI=prefab`, `apply_changes` shows its changes as a card in
-clients that render MCP Apps, instead of asking for a confirmation:
+In clients that render MCP Apps, `apply_changes` shows its changes as a card
+instead of asking for a confirmation. This lets clients without elicitation
+support, such as Claude Desktop, confirm writes. Set `GRAMPS_MCP_UI=off` to
+always ask for a confirmation instead:
 
 ![The card of apply_changes showing additions, edits, and deletions: boxes, a name being fixed, buttons](../assets/shakespeare-card.png)
 {: style="max-width: 600px; display: block; margin: 0 auto;" }

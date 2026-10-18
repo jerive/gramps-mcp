@@ -181,8 +181,8 @@ sequenceDiagram
 
     Note over Copilot,MCP: 2. Write Preparation & Mutation Proposal
     Copilot->>MCP: apply_changes(tree="viveret", operations=[...])
-    Note over MCP: GRAMPS_MCP_UI=prefab generates interactive card
-    MCP-->>User: Elicitation: Interactive Prefab UI card rendered (dependency tree)
+    Note over MCP: Client renders MCP Apps: interactive card instead of elicitation
+    MCP-->>User: MCP App: Interactive Prefab UI card rendered (dependency tree)
     
     Note over User: 3. Human Review & Interaction
     User->>User: Reviews operations (Green / Orange / Red)<br/>Tests dependency uncheck & text edit

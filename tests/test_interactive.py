@@ -133,8 +133,8 @@ async def confirm(
 
 def test_ui_mode_from_the_environment(monkeypatch):
     for value, mode in [
-        ("", "off"),
-        ("text", "off"),
+        ("", "auto"),
+        ("off", "off"),
         ("prefab", "auto"),
         (" Prefab ", "auto"),
         ("prefab-always", "always"),
