@@ -1,9 +1,18 @@
 # ruff: noqa: E501
 """Automated screencast recorder for gramps-mcp Elicitation / Prefab UI flow.
 
-Simulates VS Code Copilot Chat interaction, tool invocations, Prefab UI
-interactive card review with dependency cascade, live editing, and confirmation.
-Records video using Playwright and encodes to MP4 and WebM using ffmpeg.
+Progressive step-by-step demonstration:
+1. Typewriter prompt in chat input.
+2. User sends prompt.
+3. Copilot "Thinking..." loader appears.
+4. Multiple discovery tool calls (get_search) appear and resolve.
+5. Assistant drafts atomic plan.
+6. apply_changes is called, revealing the Prefab interactive card.
+7. Simulated mouse interaction: unticking Anne Hathaway (dependency cascade),
+   re-ticking, editing text, and clicking [Apply].
+8. confirm_changes executes, followed by final success response.
+
+Encodes to docs/assets/demo.mp4 and docs/assets/demo.webm.
 """
 
 from __future__ import annotations
@@ -20,14 +29,13 @@ STAGE_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <title>Copilot Chat - Gramps MCP Demo</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@vscode/codicons/dist/codicon.css">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       background-color: #1e1e1e;
       color: #cccccc;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      overflow-x: hidden;
+      overflow: hidden;
       display: flex;
       flex-direction: column;
       height: 100vh;
@@ -54,13 +62,14 @@ STAGE_HTML = """<!DOCTYPE html>
     .dot-red { background: #ff5f56; }
     .dot-yellow { background: #ffbd2e; }
     .dot-green { background: #27c93f; }
-    .titlebar-text { flex: 1; text-align: center; color: #cccccc; font-weight: 500; }
+    .titlebar-text { flex: 1; text-align: center; color: #cccccc; font-weight: 500; font-size: 12px; }
 
-    /* App container */
+    /* Main body */
     .app-body {
       display: flex;
       flex: 1;
       overflow: hidden;
+      position: relative;
     }
     /* Activity Bar */
     .activity-bar {
@@ -86,16 +95,25 @@ STAGE_HTML = """<!DOCTYPE html>
       background: #007acc;
     }
 
-    /* Chat Container */
-    .chat-container {
+    /* Chat layout */
+    .chat-layout {
       flex: 1;
       display: flex;
       flex-direction: column;
       background: #1e1e1e;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Chat feed */
+    .chat-feed {
+      flex: 1;
       overflow-y: auto;
-      padding: 24px 32px 60px;
-      gap: 20px;
-      max-width: 900px;
+      padding: 24px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-width: 880px;
       margin: 0 auto;
       width: 100%;
     }
@@ -105,19 +123,20 @@ STAGE_HTML = """<!DOCTYPE html>
       align-self: flex-end;
       background: #0e639c;
       color: #ffffff;
-      padding: 14px 18px;
+      padding: 12px 16px;
       border-radius: 12px 12px 2px 12px;
-      max-width: 85%;
+      max-width: 88%;
       font-size: 13.5px;
       line-height: 1.5;
       box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      animation: fadeIn 0.3s ease;
     }
     .msg-user-header {
       font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: #b3d7ff;
-      margin-bottom: 6px;
+      margin-bottom: 5px;
       font-weight: 600;
     }
 
@@ -127,6 +146,7 @@ STAGE_HTML = """<!DOCTYPE html>
       flex-direction: column;
       gap: 12px;
       width: 100%;
+      animation: fadeIn 0.3s ease;
     }
     .assistant-header {
       display: flex;
@@ -148,6 +168,7 @@ STAGE_HTML = """<!DOCTYPE html>
       display: flex;
       flex-direction: column;
       gap: 6px;
+      animation: fadeIn 0.35s ease;
     }
     .tool-header {
       display: flex;
@@ -168,6 +189,28 @@ STAGE_HTML = """<!DOCTYPE html>
       padding-left: 20px;
     }
 
+    /* Thinking spinner */
+    .thinking {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #858585;
+      font-size: 13px;
+      font-style: italic;
+      padding: 6px 0;
+      animation: fadeIn 0.25s ease;
+    }
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #3c3c3c;
+      border-top-color: #3794ff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
     /* Card Frame */
     .card-wrapper {
       background: #ffffff;
@@ -175,12 +218,67 @@ STAGE_HTML = """<!DOCTYPE html>
       overflow: hidden;
       box-shadow: 0 4px 20px rgba(0,0,0,0.4);
       margin: 8px 0;
+      animation: fadeIn 0.4s ease;
     }
     iframe {
       width: 100%;
       height: 960px;
       border: none;
       display: block;
+    }
+
+    /* Bottom input bar */
+    .chat-input-bar {
+      background: #1e1e1e;
+      border-top: 1px solid #2d2d2d;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      max-width: 880px;
+      width: 100%;
+      margin: 0 auto;
+      flex-shrink: 0;
+    }
+    .input-box {
+      flex: 1;
+      background: #252526;
+      border: 1px solid #3c3c3c;
+      border-radius: 8px;
+      color: #ffffff;
+      padding: 10px 14px;
+      font-size: 13px;
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.4;
+    }
+    .cursor-blink {
+      display: inline-block;
+      width: 2px;
+      height: 15px;
+      background: #3794ff;
+      margin-left: 2px;
+      animation: blink 1s infinite;
+      vertical-align: middle;
+    }
+    @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+
+    .send-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 6px;
+      background: #007acc;
+      border: none;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 15px;
+      flex-shrink: 0;
     }
 
     /* Smooth animated cursor */
@@ -217,7 +315,7 @@ STAGE_HTML = """<!DOCTYPE html>
       <span class="dot dot-yellow"></span>
       <span class="dot dot-green"></span>
     </div>
-    <div class="titlebar-text">gramps-mcp — Visual Studio Code (Copilot Chat)</div>
+    <div class="titlebar-text">Visual Studio Code — Copilot Chat (tree viveret)</div>
   </div>
 
   <div class="app-body">
@@ -229,67 +327,14 @@ STAGE_HTML = """<!DOCTYPE html>
       <span>⚙️</span>
     </div>
 
-    <div class="chat-container" id="chat">
-      <!-- User message -->
-      <div class="msg-user">
-        <div class="msg-user-header">User &bull; In tree viveret</div>
-        William Shakespeare was born circa 23 April 1564 (baptized 26 April 1564) and died on 23 April 1616 in Stratford-upon-Avon; he married Anne Hathaway in late November 1582 in Warwickshire (under a marriage bond issued on 28 November 1582, with Stratford traditionally cited), having three children born in Stratford-upon-Avon—Susanna (baptized 26 May 1583) and twins Hamnet and Judith (baptized 2 February 1585)—while his parents, John Shakespeare and Mary Arden, married around 1557, typically believed to have taken place in Aston Cantlow. Please update William Shakespeare in the tree accordingly.
+    <div class="chat-layout">
+      <div class="chat-feed" id="chat">
+        <!-- Messages will be injected sequentially -->
       </div>
 
-      <div class="msg-assistant">
-        <div class="assistant-header">
-          <span>✨ GitHub Copilot</span>
-        </div>
-
-        <!-- Read Tool Call -->
-        <div class="tool-box" id="tool-search">
-          <div class="tool-header">
-            <span>⚙️ tool call:</span>
-            <span class="tool-pill">tree-viveret_get_search</span>
-            <span>{"query": "William Shakespeare"}</span>
-          </div>
-          <div class="tool-result">
-            ✓ Found 1 person: William Shakespeare (ID: I0001, handle: p_ws), with existing event: Estimated Death in London, 1615
-          </div>
-        </div>
-
-        <div style="font-size: 13.5px; line-height: 1.5; color: #d4d4d4;">
-          William Shakespeare is in the tree with an estimated death record from 1615. I've prepared an atomic set of changes: creating Anne Hathaway and their marriage event, recording his confirmed death in Stratford, linking his family, and deleting the obsolete 1615 event. Please review:
-        </div>
-
-        <!-- Apply Changes Tool Call with Prefab UI Card -->
-        <div class="tool-box" id="tool-apply">
-          <div class="tool-header">
-            <span>⚙️ tool call:</span>
-            <span class="tool-pill">tree-viveret_apply_changes</span>
-            <span>{"operations": [6 operations]}</span>
-          </div>
-          <div style="color: #4ec9b0; font-size: 12px; margin-top: 4px;">
-            ⚡ Elicitation requested: Interactive review card rendered below
-          </div>
-        </div>
-
-        <!-- Card Frame -->
-        <div class="card-wrapper" id="card-wrapper">
-          <iframe id="card-iframe" src="shakespeare-card.html"></iframe>
-        </div>
-
-        <!-- Success Tool Call (Hidden from model, called by App) -->
-        <div class="tool-box" id="tool-confirm" style="display: none;">
-          <div class="tool-header">
-            <span style="color: #4ec9b0;">⚡ app action:</span>
-            <span class="tool-pill">tree-viveret_confirm_changes</span>
-            <span>{"token": "auth_token_8a9f...", "selection": {...}}</span>
-          </div>
-          <div class="tool-result">
-            ✓ status: "applied", 6 changes committed (transaction: tx_9f14)
-          </div>
-        </div>
-
-        <!-- Final Message -->
-        <div id="final-message" style="display: none; font-size: 13.5px; line-height: 1.5; color: #d4d4d4; background: #252526; border-left: 3px solid #4ec9b0; padding: 12px 16px; border-radius: 4px;">
-          ✅ <strong>Changes successfully applied!</strong> William Shakespeare's tree has been updated with Anne Hathaway and their marriage event, his confirmed death in Stratford-upon-Avon (23 April 1616) has been recorded, and the outdated 1615 estimated death event has been removed.
-        </div>
+      <div class="chat-input-bar">
+        <div class="input-box" id="input-box"><span id="input-text"></span><span class="cursor-blink" id="input-cursor"></span></div>
+        <button class="send-btn" id="send-btn">➤</button>
       </div>
     </div>
   </div>
@@ -332,7 +377,7 @@ async def record_screencast():
         shutil.rmtree(record_dir)
     record_dir.mkdir(parents=True, exist_ok=True)
 
-    print("🎥 Launching Chrome to record screencast...")
+    print("🎥 Launching Chrome to record progressive screencast...")
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             executable_path="/usr/bin/google-chrome",
@@ -354,10 +399,6 @@ async def record_screencast():
         await page.goto(f"file://{stage_path.resolve()}")
         await page.wait_for_timeout(1000)
 
-        # Wait for iframe to load
-        iframe_element = page.frame_locator("#card-iframe")
-        await page.wait_for_timeout(2000)
-
         async def smooth_move(target_x, target_y, steps=25):
             cur_pos = await page.evaluate(
                 "() => ({x: parseFloat(cursor.style.left) || 640, y: parseFloat(cursor.style.top) || 360})"
@@ -365,7 +406,6 @@ async def record_screencast():
             start_x, start_y = cur_pos["x"], cur_pos["y"]
             for i in range(1, steps + 1):
                 t = i / steps
-                # easeInOutCubic
                 e = 4 * t * t * t if t < 0.5 else 1 - pow(-2 * t + 2, 3) / 2
                 x = start_x + (target_x - start_x) * e
                 y = start_y + (target_y - start_y) * e
@@ -376,21 +416,187 @@ async def record_screencast():
             await page.evaluate(f"ripple({x}, {y})")
             await page.wait_for_timeout(200)
 
-        # Initial scroll & presentation
-        await smooth_move(640, 200, 30)
+        async def scroll_chat_to_bottom():
+            await page.evaluate(
+                "document.getElementById('chat').scrollTop = document.getElementById('chat').scrollHeight"
+            )
+
+        # ---------------------------------------------------------
+        # 1. Typewriter prompt in input box
+        # ---------------------------------------------------------
+        prompt_text = (
+            "William Shakespeare was born circa 23 April 1564 (baptized 26 April 1564) "
+            "and died on 23 April 1616 in Stratford-upon-Avon; he married Anne Hathaway "
+            "in late November 1582 in Warwickshire, having three children born in "
+            "Stratford-upon-Avon—Susanna (baptized 26 May 1583) and twins Hamnet and Judith "
+            "(baptized 2 February 1585)—while his parents, John Shakespeare and Mary Arden, "
+            "married around 1557 in Aston Cantlow. Please update William Shakespeare in the tree accordingly."
+        )
+
+        print("⌨️ Typing prompt into chat input...")
+        # Type in chunks for realistic Asciinema-style speed
+        current_typed = ""
+        for word in prompt_text.split(" "):
+            current_typed += word + " "
+            escaped = current_typed.replace("'", "\\'")
+            await page.evaluate(
+                f"document.getElementById('input-text').innerText = '{escaped}';"
+            )
+            await asyncio.sleep(0.04)
+
+        await page.wait_for_timeout(500)
+
+        # Click send button
+        send_btn_box = await (await page.query_selector("#send-btn")).bounding_box()
+        assert send_btn_box is not None
+        btn_x = send_btn_box["x"] + send_btn_box["width"] / 2
+        btn_y = send_btn_box["y"] + send_btn_box["height"] / 2
+
+        await smooth_move(btn_x, btn_y, 20)
+        await click_at(btn_x, btn_y)
+
+        # Clear input box and append User message to chat
+        await page.evaluate(
+            f"""
+            document.getElementById('input-text').innerText = '';
+            const userMsg = document.createElement('div');
+            userMsg.className = 'msg-user';
+            userMsg.innerHTML = '<div class="msg-user-header">User &bull; Tree viveret</div>' + {repr(prompt_text)};
+            document.getElementById('chat').appendChild(userMsg);
+        """
+        )
+        await page.wait_for_timeout(800)
+
+        # ---------------------------------------------------------
+        # 2. Copilot Thinking appears
+        # ---------------------------------------------------------
+        print("🤔 Copilot starts thinking...")
+        await page.evaluate(
+            """
+            const assistantMsg = document.createElement('div');
+            assistantMsg.className = 'msg-assistant';
+            assistantMsg.id = 'assistant-container';
+            assistantMsg.innerHTML = `
+                <div class="assistant-header"><span>✨ GitHub Copilot</span></div>
+                <div class="thinking" id="thinking-loader"><div class="spinner"></div><span>Searching genealogy tree...</span></div>
+            `;
+            document.getElementById('chat').appendChild(assistantMsg);
+        """
+        )
+        await scroll_chat_to_bottom()
+        await page.wait_for_timeout(1800)
+
+        # ---------------------------------------------------------
+        # 3. Discovery Tool 1: get_search (William Shakespeare)
+        # ---------------------------------------------------------
+        print("🔍 Tool call 1: get_search (William Shakespeare)...")
+        await page.evaluate(
+            """
+            document.getElementById('thinking-loader').remove();
+            const tool1 = document.createElement('div');
+            tool1.className = 'tool-box';
+            tool1.innerHTML = `
+                <div class="tool-header">
+                    <span>⚙️ tool call:</span>
+                    <span class="tool-pill">tree-viveret_get_search</span>
+                    <span>{"query": "William Shakespeare"}</span>
+                </div>
+                <div class="tool-result">
+                    ✓ Found 1 person: William Shakespeare (ID: I0001, handle: p_ws) &bull; 1 existing event: Estimated Death in London, 1615
+                </div>
+            `;
+            document.getElementById('assistant-container').appendChild(tool1);
+
+            const thinking2 = document.createElement('div');
+            thinking2.className = 'thinking';
+            thinking2.id = 'thinking-loader';
+            thinking2.innerHTML = '<div class="spinner"></div><span>Checking family relationships...</span>';
+            document.getElementById('assistant-container').appendChild(thinking2);
+        """
+        )
+        await scroll_chat_to_bottom()
+        await page.wait_for_timeout(2000)
+
+        # ---------------------------------------------------------
+        # 4. Discovery Tool 2: get_search (Anne Hathaway)
+        # ---------------------------------------------------------
+        print("🔍 Tool call 2: get_search (Anne Hathaway)...")
+        await page.evaluate(
+            """
+            document.getElementById('thinking-loader').remove();
+            const tool2 = document.createElement('div');
+            tool2.className = 'tool-box';
+            tool2.innerHTML = `
+                <div class="tool-header">
+                    <span>⚙️ tool call:</span>
+                    <span class="tool-pill">tree-viveret_get_search</span>
+                    <span>{"query": "Anne Hathaway"}</span>
+                </div>
+                <div class="tool-result">
+                    ✓ 0 matches found (Anne Hathaway not yet in tree)
+                </div>
+            `;
+            document.getElementById('assistant-container').appendChild(tool2);
+
+            const thinking3 = document.createElement('div');
+            thinking3.className = 'thinking';
+            thinking3.id = 'thinking-loader';
+            thinking3.innerHTML = '<div class="spinner"></div><span>Planning atomic mutations...</span>';
+            document.getElementById('assistant-container').appendChild(thinking3);
+        """
+        )
+        await scroll_chat_to_bottom()
+        await page.wait_for_timeout(2000)
+
+        # ---------------------------------------------------------
+        # 5. Assistant drafts plan & calls apply_changes
+        # ---------------------------------------------------------
+        print("📋 Assistant drafts plan and calls apply_changes...")
+        await page.evaluate(
+            """
+            document.getElementById('thinking-loader').remove();
+            const planText = document.createElement('div');
+            planText.style.cssText = 'font-size: 13.5px; line-height: 1.5; color: #d4d4d4;';
+            planText.innerText = "William Shakespeare is present in the tree with an estimated death in London (1615). I've prepared an atomic transaction with 6 operations: creating Anne Hathaway, adding the marriage, recording his confirmed death in Stratford (1616), updating his links, and removing the obsolete 1615 event.";
+            document.getElementById('assistant-container').appendChild(planText);
+
+            const toolApply = document.createElement('div');
+            toolApply.className = 'tool-box';
+            toolApply.innerHTML = `
+                <div class="tool-header">
+                    <span>⚙️ tool call:</span>
+                    <span class="tool-pill">tree-viveret_apply_changes</span>
+                    <span>{"operations": [6 operations]}</span>
+                </div>
+                <div style="color: #4ec9b0; font-size: 12px; margin-top: 4px;">
+                    ⚡ Elicitation requested: Interactive review card rendered below
+                </div>
+            `;
+            document.getElementById('assistant-container').appendChild(toolApply);
+
+            const cardWrapper = document.createElement('div');
+            cardWrapper.className = 'card-wrapper';
+            cardWrapper.id = 'card-wrapper';
+            cardWrapper.innerHTML = '<iframe id="card-iframe" src="shakespeare-card.html"></iframe>';
+            document.getElementById('assistant-container').appendChild(cardWrapper);
+        """
+        )
         await page.wait_for_timeout(1500)
 
-        # Scroll down smoothly to show the Prefab card
-        for scroll_step in range(1, 15):
+        # Smoothly scroll down to show the Prefab card
+        for scroll_step in range(1, 20):
             await page.evaluate(
                 f"document.getElementById('chat').scrollTop = {scroll_step * 35}"
             )
-            await page.wait_for_timeout(50)
+            await page.wait_for_timeout(40)
 
-        await page.wait_for_timeout(2000)
+        # Wait for iframe contents to fully render
+        iframe_element = page.frame_locator("#card-iframe")
+        await page.wait_for_timeout(2500)
 
-        # Locate checkbox 2 (Anne Hathaway) inside iframe
-        # Get its bounding box in viewport coordinates
+        # ---------------------------------------------------------
+        # 6. Interactive Card: Checkbox cascade demo
+        # ---------------------------------------------------------
         iframe_box = await (await page.query_selector("#card-iframe")).bounding_box()
         assert iframe_box is not None
 
@@ -402,25 +608,22 @@ async def record_screencast():
             target_x = iframe_box["x"] + box1_coords["x"] + box1_coords["width"] / 2
             target_y = iframe_box["y"] + box1_coords["y"] + box1_coords["height"] / 2
 
-            # Move to Anne Hathaway checkbox
             print("👉 Moving cursor to Anne Hathaway checkbox...")
             await smooth_move(target_x, target_y, 35)
-            await page.wait_for_timeout(600)
+            await page.wait_for_timeout(800)
 
-            # Click to untick
-            print("👉 Unticking Anne Hathaway (triggers cascade)...")
+            print("👉 Unticking Anne Hathaway (dependency cascade)...")
             await click_at(target_x, target_y)
             await box1.click()
-            await page.wait_for_timeout(2500)  # Pause to appreciate cascade
+            await page.wait_for_timeout(2500)  # Pause to show cascade
 
-            # Click again to retick
             print("👉 Reticking Anne Hathaway...")
             await click_at(target_x, target_y)
             await box1.click()
             await page.wait_for_timeout(1500)
 
-        # Scroll down slightly inside chat
-        for scroll_step in range(15, 26):
+        # Scroll down inside chat to see bottom of card
+        for scroll_step in range(20, 32):
             await page.evaluate(
                 f"document.getElementById('chat').scrollTop = {scroll_step * 35}"
             )
@@ -432,7 +635,9 @@ async def record_screencast():
         iframe_box = await (await page.query_selector("#card-iframe")).bounding_box()
         assert iframe_box is not None
 
-        # Locate Apply button
+        # ---------------------------------------------------------
+        # 7. Click Apply Button
+        # ---------------------------------------------------------
         apply_btn = iframe_element.get_by_role("button", name="Apply")
         apply_box = await apply_btn.bounding_box()
 
@@ -441,7 +646,7 @@ async def record_screencast():
             apply_y = iframe_box["y"] + apply_box["y"] + apply_box["height"] / 2
 
             print("👉 Moving cursor to Apply button...")
-            await smooth_move(apply_x, apply_y, 40)
+            await smooth_move(apply_x, apply_y, 35)
             await page.wait_for_timeout(800)
 
             print("👉 Clicking Apply...")
@@ -449,21 +654,42 @@ async def record_screencast():
             await apply_btn.click()
             await page.wait_for_timeout(1000)
 
-        # Show confirm tool call and final message in chat
+        # ---------------------------------------------------------
+        # 8. Confirmation & Final Success Response
+        # ---------------------------------------------------------
+        print("✅ Revealing confirm_changes and final success message...")
         await page.evaluate(
-            "document.getElementById('tool-confirm').style.display = 'flex';"
-            "document.getElementById('final-message').style.display = 'block';"
+            """
+            const toolConfirm = document.createElement('div');
+            toolConfirm.className = 'tool-box';
+            toolConfirm.innerHTML = `
+                <div class="tool-header">
+                    <span style="color: #4ec9b0;">⚡ app action:</span>
+                    <span class="tool-pill">tree-viveret_confirm_changes</span>
+                    <span>{"token": "auth_token_8a9f...", "selection": {"0": true, "1": true, "2": true, "3": true, "4": true, "5": true}}</span>
+                </div>
+                <div class="tool-result">
+                    ✓ status: "applied", 6 changes committed (transaction: tx_9f14)
+                </div>
+            `;
+            document.getElementById('assistant-container').appendChild(toolConfirm);
+
+            const finalMsg = document.createElement('div');
+            finalMsg.style.cssText = 'font-size: 13.5px; line-height: 1.5; color: #d4d4d4; background: #252526; border-left: 3px solid #4ec9b0; padding: 12px 16px; border-radius: 4px; margin-top: 8px; animation: fadeIn 0.4s ease;';
+            finalMsg.innerHTML = '✅ <strong>Changes successfully applied!</strong> William Shakespeare\\'s family tree has been updated: Anne Hathaway and their marriage event are recorded, his confirmed death in Stratford-upon-Avon (23 April 1616) is saved, and the outdated 1615 estimated death event has been removed.';
+            document.getElementById('assistant-container').appendChild(finalMsg);
+        """
         )
 
-        # Scroll to bottom
-        for scroll_step in range(26, 40):
+        # Scroll to bottom to show final success
+        for scroll_step in range(32, 45):
             await page.evaluate(
                 f"document.getElementById('chat').scrollTop = {scroll_step * 35}"
             )
-            await page.wait_for_timeout(40)
+            await page.wait_for_timeout(35)
 
-        await smooth_move(640, 600, 30)
-        await page.wait_for_timeout(3500)
+        await smooth_move(640, 620, 25)
+        await page.wait_for_timeout(4000)
 
         print("🎬 Finishing recording...")
         await context.close()
@@ -480,7 +706,6 @@ async def record_screencast():
     out_webm = assets_dir / "demo.webm"
 
     print("🎞️ Encoding video to MP4 and WebM via ffmpeg...")
-    # Convert to MP4 (H.264, yuv420p for max compatibility)
     cmd_mp4 = [
         "ffmpeg",
         "-y",
@@ -500,7 +725,6 @@ async def record_screencast():
     ]
     subprocess.run(cmd_mp4, check=True)
 
-    # Convert to optimized WebM
     cmd_webm = [
         "ffmpeg",
         "-y",
@@ -521,7 +745,7 @@ async def record_screencast():
     stage_path.unlink(missing_ok=True)
 
     print(
-        f"✅ Video created: {out_mp4} ({out_mp4.stat().st_size // 1024} KB), "
+        f"✅ Progressive video created: {out_mp4} ({out_mp4.stat().st_size // 1024} KB), "
         f"{out_webm} ({out_webm.stat().st_size // 1024} KB)"
     )
 
