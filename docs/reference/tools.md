@@ -181,6 +181,25 @@ With `GRAMPS_MCP_UI=prefab`, `apply_changes` shows its changes as a card in
 clients that render MCP Apps, instead of asking for a confirmation:
 
 ![The card of apply_changes showing additions, edits, and deletions: boxes, a name being fixed, buttons](../assets/shakespeare-card.png)
+{: style="max-width: 600px; display: block; margin: 0 auto;" }
+
+### Watch the end-to-end demo
+
+<video controls width="100%" poster="../../assets/shakespeare-card.png" style="border-radius: 8px; border: 1px solid var(--md-default-fg-color--lightest); margin: 1rem 0; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+  <source src="../../assets/demo.mp4" type="video/mp4">
+  <source src="../../assets/demo.webm" type="video/webm">
+  Your browser does not support HTML5 video.
+</video>
+
+<div style="text-align: center; margin: 1.5rem 0; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;" markdown>
+<a href="../../assets/shakespeare-card.html" target="_blank" class="md-button md-button--primary">
+  :material-open-in-new: Open the live interactive card in a new tab
+</a>
+</div>
+
+Or interact with it directly in the embedded frame below:
+
+<iframe src="../../assets/shakespeare-card.html" width="100%" height="960px" style="border: 1px solid var(--md-default-fg-color--lightest); border-radius: 8px; margin: 1rem 0;"></iframe>
 
 - **Tick or untick** each change. The changes are shown as a tree: a change
   hangs under the one it belongs to. A birth hangs under its person and a note

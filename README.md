@@ -10,12 +10,13 @@ open-ended research question — *"give me a breakdown of the social classes of
 the people in this tree"* — or edit the tree live by voice, the same way you'd
 dictate a change to an assistant in any other MCP-backed app.
 
-It works by pointing [FastMCP](https://gofastmcp.com/)'s
-`FastMCP.from_openapi()` at your Gramps Web API instance's `openapi.json` and
-auto-generating the read tools from the REST endpoints, giving one set of tools for
-all the configured trees behind optional Google OAuth and a per-tree membership
-check. Writing goes through a single tool, `apply_changes`, which shows every
-change to the user and writes only once they confirm.
+Built on [FastMCP](https://gofastmcp.com/), it exposes a curated set of eight
+tools—seven read operations and a single safe write tool, `apply_changes`—shared
+across all configured trees behind optional Google OAuth and a per-tree membership
+check. Rather than exposing dozens of raw REST endpoints that clutter the LLM's
+context window, it unifies tree operations behind clean abstractions, presenting
+every planned mutation to the user for interactive review and writing only once
+confirmed.
 
 ## Safe, interactive writes with MCP Apps
 
@@ -24,11 +25,14 @@ Writing to a genealogy database requires strict care: invalid references or wron
 <p align="center">
   <img src="docs/assets/shakespeare-card.png" alt="Interactive change card: additions in green, edits in orange, deletions in red, with editable fields and checkboxes" width="600" />
 </p>
+<p align="center">
+  <a href="https://jerive.github.io/gramps-mcp/assets/shakespeare-card.html"><strong>🔗 Try the live interactive card</strong></a> &bull;
+  <a href="https://jerive.github.io/gramps-mcp/assets/demo.mp4"><strong>🎬 Watch the end-to-end demo video</strong></a>
+</p>
 
 - **Visual status badges**: Additions in green, edits in orange, and deletions in red.
 - **Automatic dependency cascades**: Unticking a change automatically unticks everything that depends on it (e.g. unticking a person unticks their marriage family).
 - **Inline text editing**: Fix names, descriptions, or surnames directly in the card before applying.
-- **Model isolation**: Clicking **Apply** calls `confirm_changes` with a single-use token. This tool is hidden from the model (`visibility: ["app"]`), guaranteeing the AI cannot self-approve.
 - **Atomic rollback**: If any change fails, all preceding changes in the transaction are rolled back atomically.
 
 In clients without MCP Apps support, it seamlessly falls back to standard MCP text elicitation.
