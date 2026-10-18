@@ -17,6 +17,20 @@ optional Google OAuth and a per-tree membership check. Writing goes through a
 single tool, `apply_changes`, which shows every change to the user and writes
 only once they confirm.
 
+## Safe, interactive writes with MCP Apps
+
+Writing to a genealogy database requires strict care: invalid references or wrong schemas can corrupt a tree. `gramps-mcp` channels all modifications through a single entry point, `apply_changes`. When connected to an MCP client supporting **MCP Apps (Prefab UI)** (e.g. Visual Studio Code with Copilot), it turns planned changes into a live, interactive review card:
+
+<p align="center">
+  <img src="assets/shakespeare-card.png" alt="Interactive change card: additions in green, edits in orange, deletions in red, with editable fields and checkboxes" width="600" />
+</p>
+
+- **Visual status badges**: Additions in green, edits in orange, deletions in red.
+- **Automatic dependency cascades**: Unticking a change automatically unticks everything that depends on it.
+- **Inline text editing**: Fix names, descriptions, or surnames directly in the card before applying.
+- **Model isolation**: Clicking **Apply** calls `confirm_changes` with a single-use token; the tool is hidden from the model (`visibility: ["app"]`), ensuring the AI cannot self-approve.
+- **Atomic rollback**: If any change fails, all earlier changes in the transaction are rolled back atomically.
+
 !!! warning "Read this before pointing it at a real tree"
     This is a community project, not affiliated with or endorsed by the Gramps
     project. Gramps Web API intentionally exposes an open REST API, but its

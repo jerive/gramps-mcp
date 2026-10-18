@@ -45,6 +45,47 @@ The tools are generated once and shared: each takes the `tree` it is for, and
   what it needs to write GOQL queries, without stuffing it into every tool
   description.
 
+## Safe write flow with elicitation and MCP Apps
+
+Modifying a genealogy database presents unique risks because relationships span across several tables (e.g., people, families, events, places). A direct REST `PUT` or `POST` by an LLM could leave dangling references or corrupt family links.
+
+To protect data integrity, `gramps-mcp` funnels all writes through `apply_changes`. When connected to an MCP client supporting **MCP Apps (Prefab UI)** (such as Visual Studio Code with Copilot), it executes the following flow:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User (VS Code)
+    participant Copilot as AI Assistant (Copilot)
+    participant MCP as gramps-mcp Server
+    participant Gramps as Gramps Web API
+
+    User->>Copilot: "Update William Shakespeare in the tree..."
+    Note over Copilot,MCP: 1. Read & Discovery Phase
+    Copilot->>MCP: tree-demo_get_search(query="William Shakespeare")
+    MCP->>Gramps: GET /api/search/?query=William+Shakespeare
+    Gramps-->>MCP: Matching records & existing relationships
+    MCP-->>Copilot: Grounding context (handles, current state)
+
+    Note over Copilot,MCP: 2. Write Preparation & Mutation Proposal
+    Copilot->>MCP: tree-demo_apply_changes(operations=[...])
+    Note over MCP: GRAMPS_MCP_UI=prefab generates interactive card
+    MCP-->>User: Elicitation: Interactive Prefab UI card rendered
+    
+    Note over User: 3. Human Review & Interaction
+    User->>User: Reviews operations (Green / Orange / Red)<br/>Tests dependency uncheck & text edit
+    User->>MCP: Clicks [Apply] -> tree-demo_confirm_changes(token, selection, edits)
+    MCP->>Gramps: Atomic execution (POST, PUT, DELETE)
+    Gramps-->>MCP: Success (status: applied, created handles)
+    MCP-->>Copilot: Confirmation message with applied result
+    Copilot-->>User: Final confirmation in chat
+```
+
+1. **Discovery**: The model queries the tree to ground itself on real handles and current data.
+2. **Proposal**: The model drafts the atomic operations (`create`, `update`, `delete`).
+3. **Interactive Elicitation**: Instead of writing immediately, `gramps-mcp` yields an interactive card with dependency closure and inline editing.
+4. **App-Only Confirmation**: The user clicks **Apply**, which calls `confirm_changes`. Because `confirm_changes` is marked with `visibility: ["app"]`, the host keeps it hidden from the LLM, guaranteeing the model cannot self-confirm.
+5. **Atomic Rollback**: If an operation fails, previous operations in the set are rolled back atomically via Gramps Web API transactions.
+
 ## Authentication, in two layers
 
 There are two unrelated identities in play:
