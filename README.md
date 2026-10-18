@@ -24,6 +24,10 @@ Writing to a genealogy database requires strict care: invalid references or wron
 <p align="center">
   <img src="docs/assets/shakespeare-card.png" alt="Interactive change card: additions in green, edits in orange, deletions in red, with editable fields and checkboxes" width="600" />
 </p>
+<p align="center">
+  <a href="https://jerive.github.io/gramps-mcp/assets/shakespeare-card.html"><strong>🔗 Try the live interactive card</strong></a> &bull;
+  <a href="https://jerive.github.io/gramps-mcp/assets/demo.mp4"><strong>🎬 Watch the end-to-end demo video</strong></a>
+</p>
 
 - **Visual status badges**: Additions in green, edits in orange, and deletions in red.
 - **Automatic dependency cascades**: Unticking a change automatically unticks everything that depends on it (e.g. unticking a person unticks their marriage family).

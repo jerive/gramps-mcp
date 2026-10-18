@@ -24,6 +24,14 @@ Writing to a genealogy database requires strict care: invalid references or wron
 <p align="center">
   <img src="assets/shakespeare-card.png" alt="Interactive change card: additions in green, edits in orange, deletions in red, with editable fields and checkboxes" width="600" />
 </p>
+<p align="center" style="margin-top: -0.5rem; margin-bottom: 1.5rem; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">
+  <a href="assets/shakespeare-card.html" target="_blank" class="md-button md-button--primary">
+    Try the live interactive card :material-open-in-new:
+  </a>
+  <a href="assets/demo.mp4" target="_blank" class="md-button">
+    Watch demo video :material-play-circle:
+  </a>
+</p>
 
 - **Visual status badges**: Additions in green, edits in orange, deletions in red.
 - **Automatic dependency cascades**: Unticking a change automatically unticks everything that depends on it.
