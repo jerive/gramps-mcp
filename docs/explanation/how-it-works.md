@@ -15,7 +15,7 @@ Rather than exposing dozens of raw REST endpoints that clutter the model's conte
 - **One write operation**:
   - `apply_changes`: The single atomic mutation entry point (`create`, `update`, `delete`), backed by human-in-the-loop confirmation.
 
-Each tool takes a `tree` parameter (optional when only one tree is configured). The server keeps a dedicated HTTP client per tree logged in as that tree's service account, guaranteeing that requests for tree A can never use tree B's credentials.
+Each tool takes a `tree` parameter (optional when only one tree is configured). The server keeps a dedicated HTTP client per tree logged in as that tree's service account, guaranteeing that requests for tree A can never use tree B's credentials. Once [gramps-web-api#945](https://github.com/gramps-project/gramps-web-api/issues/945) lands (allowing a user to belong to multiple trees without site-admin privileges), a single client and credential pair will be able to serve all trees.
 
 ## What the server adds on top of the generation
 
