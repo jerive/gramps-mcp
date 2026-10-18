@@ -167,7 +167,7 @@ The list lives in `EXCLUDED_ROUTE_PREFIXES` in `src/gramps_mcp/trees.py`; the re
 With `GRAMPS_MCP_UI=prefab`, `apply_changes` shows its changes as a card in
 clients that render MCP Apps, instead of asking for a confirmation:
 
-![The card of apply_changes: boxes, a name being fixed, buttons](../assets/interactive-card.png)
+![The card of apply_changes showing additions, edits, and deletions: boxes, a name being fixed, buttons](../assets/shakespeare-card.png)
 
 - **Tick or untick** each change. Changes that depend on each other follow
   each other: the person that cites a created event, the family that cites the
