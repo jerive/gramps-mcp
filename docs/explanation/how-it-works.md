@@ -85,7 +85,7 @@ sequenceDiagram
 1. **Discovery**: The model queries the tree to ground itself on real handles and current data.
 2. **Proposal**: The model drafts the atomic operations (`create`, `update`, `delete`).
 3. **Interactive Elicitation**: Instead of writing immediately, `gramps-mcp` yields an interactive card with dependency closure and inline editing.
-4. **App-Only Confirmation**: The user clicks **Apply**, which calls `confirm_changes`. Because `confirm_changes` is marked with `visibility: ["app"]`, the host keeps it hidden from the LLM, guaranteeing the model cannot self-confirm.
+4. **Human Confirmation**: The user reviews, edits if needed, and clicks **Apply** to execute the mutations atomically.
 5. **Atomic Rollback**: If an operation fails, previous operations in the set are rolled back atomically via Gramps Web API transactions.
 
 ## Authentication, in two layers

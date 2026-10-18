@@ -37,7 +37,6 @@ Writing to a genealogy database requires strict care: invalid references or wron
 - **Visual status badges**: Additions in green, edits in orange, deletions in red.
 - **Automatic dependency cascades**: Unticking a change automatically unticks everything that depends on it.
 - **Inline text editing**: Fix names, descriptions, or surnames directly in the card before applying.
-- **Model isolation**: Clicking **Apply** calls `confirm_changes` with a single-use token; the tool is hidden from the model (`visibility: ["app"]`), ensuring the AI cannot self-approve.
 - **Atomic rollback**: If any change fails, all earlier changes in the transaction are rolled back atomically.
 
 !!! warning "Read this before pointing it at a real tree"

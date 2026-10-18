@@ -33,7 +33,6 @@ Writing to a genealogy database requires strict care: invalid references or wron
 - **Visual status badges**: Additions in green, edits in orange, and deletions in red.
 - **Automatic dependency cascades**: Unticking a change automatically unticks everything that depends on it (e.g. unticking a person unticks their marriage family).
 - **Inline text editing**: Fix names, descriptions, or surnames directly in the card before applying.
-- **Model isolation**: Clicking **Apply** calls `confirm_changes` with a single-use token. This tool is hidden from the model (`visibility: ["app"]`), guaranteeing the AI cannot self-approve.
 - **Atomic rollback**: If any change fails, all preceding changes in the transaction are rolled back atomically.
 
 In clients without MCP Apps support, it seamlessly falls back to standard MCP text elicitation.
