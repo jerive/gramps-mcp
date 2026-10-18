@@ -15,7 +15,7 @@ Rather than exposing dozens of raw REST endpoints that clutter the model's conte
 - **One write operation**:
   - `apply_changes`: The single atomic mutation entry point (`create`, `update`, `delete`), backed by human-in-the-loop confirmation.
 
-All trees configured in `GRAMPS_MCP_TREES` share these same tools. Each tool takes a `tree` parameter (optional when only one tree is configured). The server keeps a dedicated HTTP client per tree logged in as that tree's service account, guaranteeing that requests for tree A can never use tree B's credentials.
+Each tool takes a `tree` parameter (optional when only one tree is configured). The server keeps a dedicated HTTP client per tree logged in as that tree's service account, guaranteeing that requests for tree A can never use tree B's credentials.
 
 ## What the server adds on top of the generation
 
