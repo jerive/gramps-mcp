@@ -616,7 +616,7 @@ async def record_screencast():
         # ---------------------------------------------------------
         # 7. Assistant drafts plan & calls apply_changes
         # ---------------------------------------------------------
-        print("📋 Assistant drafts plan and calls apply_changes...")
+        print("📋 Assistant drafts plan...")
         await page.evaluate(
             """
             document.getElementById('thinking-loader').remove();
@@ -624,9 +624,17 @@ async def record_screencast():
             planText.style.cssText = 'font-size: 13.5px; line-height: 1.5; color: #d4d4d4;';
             planText.innerText = "William Shakespeare is present in the tree with an estimated death in London (1615). I've prepared an atomic transaction with 6 operations structured as a dependency tree: creating Anne Hathaway, adding the marriage, recording his confirmed death in Stratford (1616), updating his links, and removing the obsolete 1615 event.";
             document.getElementById('assistant-container').appendChild(planText);
+        """
+        )
+        await scroll_chat_to_bottom()
+        await page.wait_for_timeout(2500)
 
+        print("⚡ Executing tool call: apply_changes...")
+        await page.evaluate(
+            """
             const toolApply = document.createElement('div');
             toolApply.className = 'tool-box';
+            toolApply.id = 'tool-apply-box';
             toolApply.innerHTML = `
                 <div class="tool-header">
                     <span>⚙️ tool call:</span>
@@ -638,7 +646,15 @@ async def record_screencast():
                 </div>
             `;
             document.getElementById('assistant-container').appendChild(toolApply);
+        """
+        )
+        await scroll_chat_to_bottom()
+        # Ample pause so user has time to read and understand apply_changes & elicitation
+        await page.wait_for_timeout(3800)
 
+        print("🎴 Rendering Prefab review card...")
+        await page.evaluate(
+            """
             const cardWrapper = document.createElement('div');
             cardWrapper.className = 'card-wrapper';
             cardWrapper.id = 'card-wrapper';
@@ -649,15 +665,16 @@ async def record_screencast():
         await page.wait_for_timeout(1500)
 
         # Smoothly scroll down to show the Prefab card
+        print("📜 Scrolling down to review card...")
         for scroll_step in range(1, 24):
             await page.evaluate(
                 f"document.getElementById('chat').scrollTop = {scroll_step * 35}"
             )
-            await page.wait_for_timeout(40)
+            await page.wait_for_timeout(45)
 
-        # Wait for iframe contents to fully render
+        # Wait for iframe contents to fully render and let viewer take in the card
         iframe_element = page.frame_locator("#card-iframe")
-        await page.wait_for_timeout(3000)
+        await page.wait_for_timeout(3500)
 
         # ---------------------------------------------------------
         # 8. Interactive Card: Checkbox cascade on tree hierarchy

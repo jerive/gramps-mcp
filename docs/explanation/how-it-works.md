@@ -286,14 +286,14 @@ document.addEventListener("DOMContentLoaded", function () {
 
 Here is the complete sequence in action—from typing the prompt and discovery tool calls (`get_search`), to the Prefab review card appearing with its dependency tree, unticking a linked family, and atomic confirmation:
 
-<video controls width="100%" poster="../assets/shakespeare-card.png" style="border-radius: 8px; border: 1px solid var(--md-default-fg-color--lightest); margin: 1.5rem 0; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
-  <source src="../assets/demo.mp4" type="video/mp4">
-  <source src="../assets/demo.webm" type="video/webm">
+<video controls width="100%" poster="../../assets/shakespeare-card.png" style="border-radius: 8px; border: 1px solid var(--md-default-fg-color--lightest); margin: 1.5rem 0; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+  <source src="../../assets/demo.mp4" type="video/mp4">
+  <source src="../../assets/demo.webm" type="video/webm">
   Your browser does not support HTML5 video.
 </video>
 
 <div style="text-align: center; margin: 1rem 0 2rem; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;" markdown>
-<a href="../assets/shakespeare-card.html" target="_blank" class="md-button md-button--primary">
+<a href="../../assets/shakespeare-card.html" target="_blank" class="md-button md-button--primary">
   :material-open-in-new: Open the live interactive card in a new tab
 </a>
 </div>
