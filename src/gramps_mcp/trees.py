@@ -1,4 +1,4 @@
-"""Mounts one MCP sub-server per configured Gramps tree, generated from its
+"""Exposes one set of tools for all configured Gramps trees, generated from its
 openapi.json."""
 
 from __future__ import annotations
