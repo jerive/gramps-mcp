@@ -116,14 +116,19 @@ UiMode = Literal["off", "auto", "always"]
 
 
 def ui_mode() -> UiMode:
-    """`prefab`: the card when the client says it renders MCP Apps. `prefab-always`:
-    the card for every client; one that cannot render it writes nothing."""
+    """`prefab` (the default): the card when the client says it renders MCP Apps,
+    a confirmation otherwise. `prefab-always`: the card for every client; one
+    that cannot render it writes nothing. `off`: never the card."""
     value = os.environ.get("GRAMPS_MCP_UI", "").strip().lower()
-    if value == "prefab":
+    if value in ("", "prefab"):
         return "auto"
     if value == "prefab-always":
         return "always"
-    return "off"
+    if value == "off":
+        return "off"
+    raise ValueError(
+        f"GRAMPS_MCP_UI must be one of prefab, prefab-always, off, got {value!r}"
+    )
 
 
 def ui_enabled() -> bool:
