@@ -17,6 +17,7 @@ from fastmcp import FastMCP  # noqa: E402
 from prefab_ui.app import PrefabApp  # noqa: E402
 from test_interactive import FakeGramps, show_card  # noqa: E402
 
+from gramps_mcp.changes import OneTree  # noqa: E402
 from gramps_mcp.ui import register_ui  # noqa: E402
 
 OLD_DEATH = {
@@ -106,7 +107,7 @@ async def generate(take_screenshot: bool = True) -> tuple[Path, Path | None]:
         }
     )
     server = FastMCP()
-    register_ui(server, gramps.client(), confirmation="required")
+    register_ui(server, OneTree(gramps.client()), confirmation="required")
 
     result = await show_card(server, SHAKESPEARE_SCENARIO)
     app = PrefabApp.from_json(result.structured_content)

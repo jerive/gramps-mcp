@@ -2,14 +2,14 @@
 """Automated screencast recorder for gramps-mcp Elicitation / Prefab UI flow.
 
 Progressive step-by-step demonstration:
-1. Typewriter prompt in chat input.
+1. Slower, readable typewriter prompt in chat input with natural pauses.
 2. User sends prompt.
 3. Copilot "Thinking..." loader appears.
-4. Multiple discovery tool calls (get_search) appear and resolve.
+4. Multiple discovery tool calls (get_search across people, spouses, places) appear sequentially.
 5. Assistant drafts atomic plan.
-6. apply_changes is called, revealing the Prefab interactive card.
-7. Simulated mouse interaction: unticking Anne Hathaway (dependency cascade),
-   re-ticking, editing text, and clicking [Apply].
+6. apply_changes is called, revealing the tree-structured Prefab interactive card.
+7. Simulated mouse interaction: unticking Anne Hathaway (showing indented dependency cascade),
+   re-ticking, and clicking [Apply].
 8. confirm_changes executes, followed by final success response.
 
 Encodes to docs/assets/demo.mp4 and docs/assets/demo.webm.
@@ -222,7 +222,7 @@ STAGE_HTML = """<!DOCTYPE html>
     }
     iframe {
       width: 100%;
-      height: 960px;
+      height: 980px;
       border: none;
       display: block;
     }
@@ -315,7 +315,7 @@ STAGE_HTML = """<!DOCTYPE html>
       <span class="dot dot-yellow"></span>
       <span class="dot dot-green"></span>
     </div>
-    <div class="titlebar-text">Visual Studio Code — Copilot Chat (tree viveret)</div>
+    <div class="titlebar-text">Visual Studio Code — Copilot Chat (tree: viveret)</div>
   </div>
 
   <div class="app-body">
@@ -422,7 +422,7 @@ async def record_screencast():
             )
 
         # ---------------------------------------------------------
-        # 1. Typewriter prompt in input box
+        # 1. Typewriter prompt in input box (paced for easy reading)
         # ---------------------------------------------------------
         prompt_text = (
             "William Shakespeare was born circa 23 April 1564 (baptized 26 April 1564) "
@@ -433,8 +433,7 @@ async def record_screencast():
             "married around 1557 in Aston Cantlow. Please update William Shakespeare in the tree accordingly."
         )
 
-        print("⌨️ Typing prompt into chat input...")
-        # Type in chunks for realistic Asciinema-style speed
+        print("⌨️ Typing prompt into chat input (paced for reading)...")
         current_typed = ""
         for word in prompt_text.split(" "):
             current_typed += word + " "
@@ -442,9 +441,13 @@ async def record_screencast():
             await page.evaluate(
                 f"document.getElementById('input-text').innerText = '{escaped}';"
             )
-            await asyncio.sleep(0.04)
+            # Natural pauses on punctuation, steady reading pace on words
+            if any(p in word for p in [";", ".", "—", ","]):
+                await asyncio.sleep(0.18)
+            else:
+                await asyncio.sleep(0.08)
 
-        await page.wait_for_timeout(500)
+        await page.wait_for_timeout(1000)
 
         # Click send button
         send_btn_box = await (await page.query_selector("#send-btn")).bounding_box()
@@ -455,7 +458,7 @@ async def record_screencast():
         await smooth_move(btn_x, btn_y, 20)
         await click_at(btn_x, btn_y)
 
-        # Clear input box and append User message to chat
+        # Append User message to chat
         await page.evaluate(
             f"""
             document.getElementById('input-text').innerText = '';
@@ -465,7 +468,7 @@ async def record_screencast():
             document.getElementById('chat').appendChild(userMsg);
         """
         )
-        await page.wait_for_timeout(800)
+        await page.wait_for_timeout(1000)
 
         # ---------------------------------------------------------
         # 2. Copilot Thinking appears
@@ -484,7 +487,7 @@ async def record_screencast():
         """
         )
         await scroll_chat_to_bottom()
-        await page.wait_for_timeout(1800)
+        await page.wait_for_timeout(2000)
 
         # ---------------------------------------------------------
         # 3. Discovery Tool 1: get_search (William Shakespeare)
@@ -498,11 +501,11 @@ async def record_screencast():
             tool1.innerHTML = `
                 <div class="tool-header">
                     <span>⚙️ tool call:</span>
-                    <span class="tool-pill">tree-viveret_get_search</span>
-                    <span>{"query": "William Shakespeare"}</span>
+                    <span class="tool-pill">get_search</span>
+                    <span>{"tree": "viveret", "query": "William Shakespeare"}</span>
                 </div>
                 <div class="tool-result">
-                    ✓ Found 1 person: William Shakespeare (ID: I0001, handle: p_ws) &bull; 1 existing event: Estimated Death in London, 1615
+                    ✓ Found 1 person: William Shakespeare (ID: I0001, handle: p_ws) &bull; 1 event: Estimated Death in London, 1615
                 </div>
             `;
             document.getElementById('assistant-container').appendChild(tool1);
@@ -510,12 +513,12 @@ async def record_screencast():
             const thinking2 = document.createElement('div');
             thinking2.className = 'thinking';
             thinking2.id = 'thinking-loader';
-            thinking2.innerHTML = '<div class="spinner"></div><span>Checking family relationships...</span>';
+            thinking2.innerHTML = '<div class="spinner"></div><span>Checking spouse and family...</span>';
             document.getElementById('assistant-container').appendChild(thinking2);
         """
         )
         await scroll_chat_to_bottom()
-        await page.wait_for_timeout(2000)
+        await page.wait_for_timeout(2200)
 
         # ---------------------------------------------------------
         # 4. Discovery Tool 2: get_search (Anne Hathaway)
@@ -529,8 +532,8 @@ async def record_screencast():
             tool2.innerHTML = `
                 <div class="tool-header">
                     <span>⚙️ tool call:</span>
-                    <span class="tool-pill">tree-viveret_get_search</span>
-                    <span>{"query": "Anne Hathaway"}</span>
+                    <span class="tool-pill">get_search</span>
+                    <span>{"tree": "viveret", "query": "Anne Hathaway"}</span>
                 </div>
                 <div class="tool-result">
                     ✓ 0 matches found (Anne Hathaway not yet in tree)
@@ -541,15 +544,77 @@ async def record_screencast():
             const thinking3 = document.createElement('div');
             thinking3.className = 'thinking';
             thinking3.id = 'thinking-loader';
-            thinking3.innerHTML = '<div class="spinner"></div><span>Planning atomic mutations...</span>';
+            thinking3.innerHTML = '<div class="spinner"></div><span>Checking parents (John Shakespeare, Mary Arden)...</span>';
             document.getElementById('assistant-container').appendChild(thinking3);
+        """
+        )
+        await scroll_chat_to_bottom()
+        await page.wait_for_timeout(2200)
+
+        # ---------------------------------------------------------
+        # 5. Discovery Tool 3: get_search (John Shakespeare)
+        # ---------------------------------------------------------
+        print("🔍 Tool call 3: get_search (John Shakespeare)...")
+        await page.evaluate(
+            """
+            document.getElementById('thinking-loader').remove();
+            const tool3 = document.createElement('div');
+            tool3.className = 'tool-box';
+            tool3.innerHTML = `
+                <div class="tool-header">
+                    <span>⚙️ tool call:</span>
+                    <span class="tool-pill">get_search</span>
+                    <span>{"tree": "viveret", "query": "John Shakespeare"}</span>
+                </div>
+                <div class="tool-result">
+                    ✓ 0 matches found (Parents not yet in tree)
+                </div>
+            `;
+            document.getElementById('assistant-container').appendChild(tool3);
+
+            const thinking4 = document.createElement('div');
+            thinking4.className = 'thinking';
+            thinking4.id = 'thinking-loader';
+            thinking4.innerHTML = '<div class="spinner"></div><span>Checking places (Stratford-upon-Avon)...</span>';
+            document.getElementById('assistant-container').appendChild(thinking4);
         """
         )
         await scroll_chat_to_bottom()
         await page.wait_for_timeout(2000)
 
         # ---------------------------------------------------------
-        # 5. Assistant drafts plan & calls apply_changes
+        # 6. Discovery Tool 4: get_search (Stratford-upon-Avon)
+        # ---------------------------------------------------------
+        print("🔍 Tool call 4: get_search (Stratford-upon-Avon)...")
+        await page.evaluate(
+            """
+            document.getElementById('thinking-loader').remove();
+            const tool4 = document.createElement('div');
+            tool4.className = 'tool-box';
+            tool4.innerHTML = `
+                <div class="tool-header">
+                    <span>⚙️ tool call:</span>
+                    <span class="tool-pill">get_search</span>
+                    <span>{"tree": "viveret", "query": "Stratford-upon-Avon"}</span>
+                </div>
+                <div class="tool-result">
+                    ✓ 0 matches found (Place will be created)
+                </div>
+            `;
+            document.getElementById('assistant-container').appendChild(tool4);
+
+            const thinking5 = document.createElement('div');
+            thinking5.className = 'thinking';
+            thinking5.id = 'thinking-loader';
+            thinking5.innerHTML = '<div class="spinner"></div><span>Planning atomic mutations...</span>';
+            document.getElementById('assistant-container').appendChild(thinking5);
+        """
+        )
+        await scroll_chat_to_bottom()
+        await page.wait_for_timeout(2200)
+
+        # ---------------------------------------------------------
+        # 7. Assistant drafts plan & calls apply_changes
         # ---------------------------------------------------------
         print("📋 Assistant drafts plan and calls apply_changes...")
         await page.evaluate(
@@ -557,7 +622,7 @@ async def record_screencast():
             document.getElementById('thinking-loader').remove();
             const planText = document.createElement('div');
             planText.style.cssText = 'font-size: 13.5px; line-height: 1.5; color: #d4d4d4;';
-            planText.innerText = "William Shakespeare is present in the tree with an estimated death in London (1615). I've prepared an atomic transaction with 6 operations: creating Anne Hathaway, adding the marriage, recording his confirmed death in Stratford (1616), updating his links, and removing the obsolete 1615 event.";
+            planText.innerText = "William Shakespeare is present in the tree with an estimated death in London (1615). I've prepared an atomic transaction with 6 operations structured as a dependency tree: creating Anne Hathaway, adding the marriage, recording his confirmed death in Stratford (1616), updating his links, and removing the obsolete 1615 event.";
             document.getElementById('assistant-container').appendChild(planText);
 
             const toolApply = document.createElement('div');
@@ -565,11 +630,11 @@ async def record_screencast():
             toolApply.innerHTML = `
                 <div class="tool-header">
                     <span>⚙️ tool call:</span>
-                    <span class="tool-pill">tree-viveret_apply_changes</span>
-                    <span>{"operations": [6 operations]}</span>
+                    <span class="tool-pill">apply_changes</span>
+                    <span>{"tree": "viveret", "operations": [6 operations]}</span>
                 </div>
                 <div style="color: #4ec9b0; font-size: 12px; margin-top: 4px;">
-                    ⚡ Elicitation requested: Interactive review card rendered below
+                    ⚡ Elicitation requested: Interactive review card rendered below (dependency tree)
                 </div>
             `;
             document.getElementById('assistant-container').appendChild(toolApply);
@@ -584,7 +649,7 @@ async def record_screencast():
         await page.wait_for_timeout(1500)
 
         # Smoothly scroll down to show the Prefab card
-        for scroll_step in range(1, 20):
+        for scroll_step in range(1, 24):
             await page.evaluate(
                 f"document.getElementById('chat').scrollTop = {scroll_step * 35}"
             )
@@ -592,51 +657,55 @@ async def record_screencast():
 
         # Wait for iframe contents to fully render
         iframe_element = page.frame_locator("#card-iframe")
-        await page.wait_for_timeout(2500)
+        await page.wait_for_timeout(3000)
 
         # ---------------------------------------------------------
-        # 6. Interactive Card: Checkbox cascade demo
+        # 8. Interactive Card: Checkbox cascade on tree hierarchy
         # ---------------------------------------------------------
         iframe_box = await (await page.query_selector("#card-iframe")).bounding_box()
         assert iframe_box is not None
 
         boxes = iframe_element.locator('[role="checkbox"]')
-        box1 = boxes.nth(1)  # Anne Hathaway
-        box1_coords = await box1.bounding_box()
+        # In the tree outline:
+        # box 0 is Person: Anne Hathaway
+        # box 1 is indented Family under Anne Hathaway
+        # box 2 is indented Event: Marriage under Family
+        box_anne = boxes.nth(0)  # Person: Anne Hathaway
+        box_coords = await box_anne.bounding_box()
 
-        if box1_coords:
-            target_x = iframe_box["x"] + box1_coords["x"] + box1_coords["width"] / 2
-            target_y = iframe_box["y"] + box1_coords["y"] + box1_coords["height"] / 2
+        if box_coords:
+            target_x = iframe_box["x"] + box_coords["x"] + box_coords["width"] / 2
+            target_y = iframe_box["y"] + box_coords["y"] + box_coords["height"] / 2
 
-            print("👉 Moving cursor to Anne Hathaway checkbox...")
+            print("👉 Moving cursor to Anne Hathaway checkbox (tree root)...")
             await smooth_move(target_x, target_y, 35)
-            await page.wait_for_timeout(800)
+            await page.wait_for_timeout(1000)
 
-            print("👉 Unticking Anne Hathaway (dependency cascade)...")
+            print("👉 Unticking Anne Hathaway (dependency tree cascade)...")
             await click_at(target_x, target_y)
-            await box1.click()
-            await page.wait_for_timeout(2500)  # Pause to show cascade
+            await box_anne.click()
+            await page.wait_for_timeout(3000)  # Ample pause to show tree cascade
 
-            print("👉 Reticking Anne Hathaway...")
+            print("👉 Reticking Anne Hathaway (tree branches restore)...")
             await click_at(target_x, target_y)
-            await box1.click()
-            await page.wait_for_timeout(1500)
+            await box_anne.click()
+            await page.wait_for_timeout(2000)
 
-        # Scroll down inside chat to see bottom of card
-        for scroll_step in range(20, 32):
+        # Scroll down inside chat to see bottom of card and Apply button
+        for scroll_step in range(24, 38):
             await page.evaluate(
                 f"document.getElementById('chat').scrollTop = {scroll_step * 35}"
             )
             await page.wait_for_timeout(40)
 
-        await page.wait_for_timeout(1000)
+        await page.wait_for_timeout(1200)
 
         # Re-query iframe bounding box after scroll
         iframe_box = await (await page.query_selector("#card-iframe")).bounding_box()
         assert iframe_box is not None
 
         # ---------------------------------------------------------
-        # 7. Click Apply Button
+        # 9. Click Apply Button
         # ---------------------------------------------------------
         apply_btn = iframe_element.get_by_role("button", name="Apply")
         apply_box = await apply_btn.bounding_box()
@@ -647,15 +716,15 @@ async def record_screencast():
 
             print("👉 Moving cursor to Apply button...")
             await smooth_move(apply_x, apply_y, 35)
-            await page.wait_for_timeout(800)
+            await page.wait_for_timeout(1000)
 
             print("👉 Clicking Apply...")
             await click_at(apply_x, apply_y)
             await apply_btn.click()
-            await page.wait_for_timeout(1000)
+            await page.wait_for_timeout(1200)
 
         # ---------------------------------------------------------
-        # 8. Confirmation & Final Success Response
+        # 10. Confirmation & Final Success Response
         # ---------------------------------------------------------
         print("✅ Revealing confirm_changes and final success message...")
         await page.evaluate(
@@ -665,8 +734,8 @@ async def record_screencast():
             toolConfirm.innerHTML = `
                 <div class="tool-header">
                     <span style="color: #4ec9b0;">⚡ app action:</span>
-                    <span class="tool-pill">tree-viveret_confirm_changes</span>
-                    <span>{"token": "auth_token_8a9f...", "selection": {"0": true, "1": true, "2": true, "3": true, "4": true, "5": true}}</span>
+                    <span class="tool-pill">confirm_changes</span>
+                    <span>{"tree": "viveret", "token": "auth_token_8a9f...", "selection": {"0": true, "1": true, "2": true, "3": true, "4": true, "5": true}}</span>
                 </div>
                 <div class="tool-result">
                     ✓ status: "applied", 6 changes committed (transaction: tx_9f14)
@@ -682,14 +751,14 @@ async def record_screencast():
         )
 
         # Scroll to bottom to show final success
-        for scroll_step in range(32, 45):
+        for scroll_step in range(38, 52):
             await page.evaluate(
                 f"document.getElementById('chat').scrollTop = {scroll_step * 35}"
             )
             await page.wait_for_timeout(35)
 
         await smooth_move(640, 620, 25)
-        await page.wait_for_timeout(4000)
+        await page.wait_for_timeout(4500)
 
         print("🎬 Finishing recording...")
         await context.close()
