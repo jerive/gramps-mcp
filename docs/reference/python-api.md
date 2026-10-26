@@ -45,9 +45,9 @@ async with httpx2.AsyncClient(
     base_url="https://gramps.example.com",
     headers={"Authorization": f"Bearer {token}"},
 ) as client:
-    planned = await plan(client, operations)   # reads the current objects
-    print(format_confirmation(planned))        # show it to a person
-    result = await execute(client, planned)    # writes, in order
+    planned = await plan(client, operations)  # reads the current objects
+    print(format_confirmation(planned))  # show it to a person
+    result = await execute(client, planned)  # writes, in order
 ```
 
 `TypeAdapter(Operations)` validates the whole set: the discriminated union,
@@ -149,7 +149,7 @@ what keeps the guarantee honest.
 
     ```python
     logger = logging.getLogger("gramps_mcp")
-    logger.handlers.clear()          # your format
+    logger.handlers.clear()  # your format
     logger.setLevel(logging.NOTSET)  # your level, inherited from the root
     ```
 
