@@ -143,9 +143,21 @@ what keeps the guarantee honest.
   `StreamHandler` on stdout and the level of `GRAMPS_MCP_LOG_LEVEL` (`INFO` by
   default), and it still propagates. A host application that configures the root
   logger therefore sees every line from this package twice, once in its own
-  format and once in ours. Silence ours with
-  `logging.getLogger("gramps_mcp").propagate = False`, or drop its handlers and
-  let yours take over.
+  format and once in ours — and keeps seeing the `INFO` ones even if it runs at
+  `WARNING`, because the level is set on our logger and a propagated record is
+  not filtered again. An application with its own logging takes it back with:
+
+    ```python
+    logger = logging.getLogger("gramps_mcp")
+    logger.handlers.clear()          # your format
+    logger.setLevel(logging.NOTSET)  # your level, inherited from the root
+    ```
+
+    Keeping our handler and setting `propagate = False` works too, if our format
+    on stdout is what you want. Configuring the logger yourself *before*
+    importing is not a third way: the handler is only added when the logger has
+    none, but the level is set either way, and relying on import order is
+    fragile anyway.
 - **`Operations` does not need the server to be wired.** The per-type object
   schemas the MCP tool advertises come from a running backend's OpenAPI document
   and only affect the JSON schema shown to a model, never validation, so a
