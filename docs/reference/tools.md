@@ -51,7 +51,7 @@ of 1 to 20 operations, in order:
 
 | `op` | Fields | Meaning |
 |---|---|---|
-| `create` | `type`, `object` | Add the full object. `_class` may be left out; if given it must match `type`. |
+| `create` | `type`, `object` | Add the full object. `_class` may be left out; if given it must match `type`. Not for `media`. |
 | `update` | `type`, `handle`, `changes` | Merge `changes`, a nested object holding only the changed fields, into the current object. A list replaces the whole list. |
 | `delete` | `type`, `handle` | Delete the object. |
 
@@ -67,8 +67,12 @@ otherwise tends to leave out. It is a suggestion, not a check: a place without
 coordinates is accepted.
 
 `type` is one of `people`, `families`, `events`, `places`, `citations`,
-`sources`, `repositories`, `media`, `notes`, `tags`. Unknown keys are refused,
-as are `handle`, `_class` and the read-only fields (`backlinks`, `extended`,
+`sources`, `repositories`, `media`, `notes`, `tags`. A `create` refuses `media`:
+Gramps takes the file itself as the body of `POST /api/media/` and derives the
+checksum, `path` and `mime` from it, so a JSON object would be stored as the
+file and every field it carries silently dropped. Add the media in Gramps Web,
+then `update` it here to set its fields. Unknown keys are refused, as are
+`handle`, `_class` and the read-only fields (`backlinks`, `extended`,
 `profile`) in `changes`, a handle longer than 50 characters, and two operations
 on the same object.
 
