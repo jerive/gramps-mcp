@@ -104,7 +104,8 @@ def on_change(card: dict[str, Any], count: int) -> list[dict[str, str]]:
     lists them as a tree, not in that order)."""
     boxes = {b["name"]: b for b in find(card, "type", "Checkbox")}
     return [
-        {a["key"]: a["value"] for a in boxes[f"s{i}"]["onChange"]} for i in range(count)
+        {a["key"]: a["value"] for a in boxes[f"s{i}"].get("onChange", [])}
+        for i in range(count)
     ]
 
 
@@ -186,11 +187,11 @@ async def test_boxes_follow_each_other_through_their_dependencies(monkeypatch):
     sets = on_change(card, 4)
     # the birth belongs to the person: unticking the person unticks the birth,
     # unticking the birth leaves the person
-    assert sets[0] == {"s0": "{{ $event }}", "s1": "{{ s1 || $event }}"}
-    assert sets[1] == {"s1": "{{ $event }}", "s0": "{{ s0 && $event }}"}
+    assert sets[0] == {"s1": "{{ s1 || $event }}"}
+    assert sets[1] == {"s0": "{{ s0 && $event }}"}
     # the family and the father's edit only list people: nothing follows
-    assert sets[2] == {"s2": "{{ $event }}"}
-    assert sets[3] == {"s3": "{{ $event }}"}
+    assert sets[2] == {}
+    assert sets[3] == {}
 
 
 MOTHER_AND_CHILD: list[dict[str, Any]] = [
@@ -222,13 +223,11 @@ async def test_unticking_the_child_keeps_the_mother_and_the_family(monkeypatch):
     sets = on_change(card, 3)
     # unticking the child unticks nobody: it only brings back what it needs
     assert sets[1] == {
-        "s1": "{{ $event }}",
         "s0": "{{ s0 || $event }}",
         "s2": "{{ s2 || $event }}",
     }
     # unticking the mother unticks her family and, through it, the child
     assert sets[0] == {
-        "s0": "{{ $event }}",
         "s1": "{{ s1 && $event }}",
         "s2": "{{ s2 && $event }}",
     }
@@ -473,7 +472,7 @@ async def test_a_birth_place_made_for_it_is_ticked_with_it_and_can_be_left_out(
     sets = on_change(card, 3)
     assert sets[1]["s2"] == "{{ s2 && $event }}"  # unticking the birth: its place goes
     # ticking the place ticks what it hangs under: the birth, and the person
-    assert set(sets[2]) == {"s0", "s1", "s2"}
+    assert set(sets[2]) == {"s0", "s1"}
     assert sets[2]["s1"] == "{{ s1 || $event }}"
 
     # the place alone is left out: the birth is created without one
