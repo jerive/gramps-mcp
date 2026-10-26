@@ -81,6 +81,12 @@ OBJECT_CLASSES: dict[ObjectType, str] = {
 READ_ONLY_FIELDS = frozenset({"backlinks", "extended", "profile"})
 # Cannot be changed on an existing object.
 IMMUTABLE_FIELDS = READ_ONLY_FIELDS | {"handle", "_class", "change"}
+# Cannot be created at all: `POST /api/media/` takes the file itself as the
+# request body, computes its checksum and derives `path` and `mime` from it. A
+# `create` would send this operation's own JSON as the file content and drop
+# every field it carries, so a media object is only ever born of an upload.
+# Editing and deleting one is ordinary.
+UNCREATABLE_TYPES: frozenset[str] = frozenset({"media"})
 
 # Gramps handles are at most 50 characters.
 Handle = Annotated[
@@ -114,7 +120,11 @@ def _show_object_schemas(schema: JsonObject) -> None:
         return
     schema["properties"]["object"] = {
         **schema["properties"]["object"],
-        "anyOf": list(OBJECT_SCHEMAS.values()),
+        "anyOf": [
+            object_schema
+            for type_, object_schema in OBJECT_SCHEMAS.items()
+            if type_ not in UNCREATABLE_TYPES
+        ],
     }
 
 
@@ -122,7 +132,12 @@ class CreateOperation(_Strict):
     model_config = ConfigDict(extra="forbid", json_schema_extra=_show_object_schemas)
 
     op: Literal["create"]
-    type: ObjectType
+    type: ObjectType = Field(
+        description=(
+            "The kind of object to add. Not `media`: a media object exists only "
+            "with its file, which no operation can carry."
+        )
+    )
     object: JsonObject = Field(
         description=(
             "The full Gramps object to add; its fields are those of the schema "
@@ -133,6 +148,13 @@ class CreateOperation(_Strict):
 
     @model_validator(mode="after")
     def _check_object(self) -> CreateOperation:
+        if self.type in UNCREATABLE_TYPES:
+            raise ValueError(
+                f"{self.type} cannot be created here: such an object exists "
+                "only with its file, and a file cannot travel in a JSON "
+                "operation. Add the file in Gramps Web, then `update` the media "
+                "it created to set `desc`, `date`, `gramps_id` or `tag_list`."
+            )
         expected = OBJECT_CLASSES[self.type]
         given = self.object.get("_class", expected)
         if given != expected:

@@ -213,6 +213,28 @@ class TestOperationTyping:
                 [{"op": "create", "type": "people", "object": {"_class": "Family"}}]
             )
 
+    def test_media_cannot_be_created_but_can_be_edited_and_deleted(self):
+        with pytest.raises(ValidationError, match="exists only with its file"):
+            OPERATIONS.validate_python(
+                [{"op": "create", "type": "media", "object": {"desc": "An act"}}]
+            )
+        # the message says what to do instead: an assistant reads it
+        with pytest.raises(ValidationError, match="then `update` the media"):
+            OPERATIONS.validate_python(
+                [{"op": "create", "type": "media", "object": {}}]
+            )
+        OPERATIONS.validate_python(
+            [
+                {
+                    "op": "update",
+                    "type": "media",
+                    "handle": "m",
+                    "changes": {"desc": "An act"},
+                },
+                {"op": "delete", "type": "media", "handle": "n"},
+            ]
+        )
+
     @pytest.mark.parametrize(
         "operation",
         [
@@ -655,3 +677,22 @@ async def test_the_model_is_shown_the_schema_of_each_object(monkeypatch):
     ]["object"]["anyOf"]
     assert [v["description"] for v in variants] == ["P", "T"]
     assert "`lat` and `long`" in text  # the place hint
+
+
+async def test_media_is_not_offered_as_an_object_to_create(monkeypatch):
+    from gramps_mcp import changes
+
+    monkeypatch.setattr(changes, "OBJECT_SCHEMAS", {})
+    changes.set_object_schemas(
+        {
+            "media": {"type": "object", "description": "M", "properties": {}},
+            "notes": {"type": "object", "description": "N", "properties": {}},
+        }
+    )
+    server = make_server(FakeGramps({}))
+    async with Client(server) as client:
+        (tool,) = await client.list_tools()
+    variants = tool.input_schema["properties"]["operations"]["items"]["oneOf"][0][
+        "properties"
+    ]["object"]["anyOf"]
+    assert [v["description"] for v in variants] == ["N"]
