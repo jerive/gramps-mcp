@@ -134,10 +134,18 @@ what keeps the guarantee honest.
   handled and triggers the rollback, but a connection dropping mid-set raises
   out of `execute`, leaving the earlier changes written and not undone. Wrap the
   call if that matters, and treat it like `partly_applied`.
-- **Importing pulls the server in.** `gramps_mcp` reaches `fastmcp`, `mcp`,
-  `starlette` and the Redis-backed key-value store through its logger, even when
-  all you want is `plan`. They are declared dependencies, so nothing is missing,
-  but the import is not light.
+- **Importing pulls the server in, but nothing starts.** `gramps_mcp` reaches
+  `fastmcp`, `mcp`, `starlette`, `uvicorn` and the Redis-backed key-value store
+  through its logger, even when all you want is `plan`. They are declared
+  dependencies, so nothing is missing, and the import opens no connection and
+  builds no provider or store: it is bulky, not active.
+- **Importing does configure logging.** The `gramps_mcp` logger gets a
+  `StreamHandler` on stdout and the level of `GRAMPS_MCP_LOG_LEVEL` (`INFO` by
+  default), and it still propagates. A host application that configures the root
+  logger therefore sees every line from this package twice, once in its own
+  format and once in ours. Silence ours with
+  `logging.getLogger("gramps_mcp").propagate = False`, or drop its handlers and
+  let yours take over.
 - **`Operations` does not need the server to be wired.** The per-type object
   schemas the MCP tool advertises come from a running backend's OpenAPI document
   and only affect the JSON schema shown to a model, never validation, so a
