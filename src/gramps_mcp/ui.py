@@ -213,13 +213,11 @@ def _cascade(
 ) -> list[Any]:
     """What clicking box `i` does. `$event` is its new state.
 
-    First the box's own value is written to the state: when a Checkbox has an
-    `on_change`, Prefab no longer does it, and the box and the state drift
-    apart. Then unticking it unticks every change that needs it and ticking it
-    ticks every change it needs. Setting a box from an action does not fire that
-    box's own handler, so the sets are the whole transitive closure."""
-    actions: list[Any] = [SetState(f"s{i}", _ref("$event"))]
-    actions += [
+    Prefab writes the box's own value to the state before this runs. Unticking
+    it unticks every change that needs it and ticking it ticks every change it
+    needs. Setting a box from an action does not fire that box's own handler, so
+    the sets are the whole transitive closure."""
+    actions: list[Any] = [
         SetState(f"s{d}", _ref(f"s{d} && $event")) for d in sorted(required_by[i])
     ]
     actions += [SetState(f"s{p}", _ref(f"s{p} || $event")) for p in sorted(requires[i])]
@@ -273,7 +271,7 @@ def build_interactive(planned: list[Planned], token: str) -> PrefabApp:
                 Checkbox(
                     name=f"s{i}",
                     value=True,
-                    on_change=_cascade(i, requires, required_by),  # type: ignore[call-arg]
+                    on_change=_cascade(i, requires, required_by) or None,  # type: ignore[call-arg]
                 )
                 with Column(css_class="flex-1"):
                     _change(views[i], index=i, fields=[f for f in fields if f.op == i])
