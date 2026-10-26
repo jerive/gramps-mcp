@@ -66,6 +66,7 @@ nav:
       - Configuration: reference/configuration.md
       - Tools and resources: reference/tools.md
       - Querying with GOQL: reference/goql.md
+      - Writing from Python: reference/python-api.md
   - Explanation:
       - How it works: explanation/how-it-works.md
       - Security and risk model: explanation/security-model.md
