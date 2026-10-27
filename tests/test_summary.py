@@ -136,9 +136,7 @@ async def test_an_added_event_reference_shows_its_role():
                 "op": "update",
                 "type": "people",
                 "handle": "jer",
-                "changes": {
-                    "event_ref_list": [{"ref": "e1", "role": "Informant"}]
-                },
+                "changes": {"event_ref_list": [{"ref": "e1", "role": "Informant"}]},
             }
         ],
         {"jer": person, "e1": event},
@@ -162,9 +160,7 @@ async def test_an_event_reference_role_change_is_not_summarized_as_reordering():
                 "op": "update",
                 "type": "people",
                 "handle": "jer",
-                "changes": {
-                    "event_ref_list": [{"ref": "e1", "role": "Informant"}]
-                },
+                "changes": {"event_ref_list": [{"ref": "e1", "role": "Informant"}]},
             }
         ],
         {"jer": person, "e1": event},
