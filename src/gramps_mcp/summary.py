@@ -222,7 +222,12 @@ class Labeler:
         if reference is not None:
             if value in (None, "", [], {}):
                 return "nothing"
-            return await self.label(reference[0], _handle(value, reference[1]))
+            text = await self.label(reference[0], _handle(value, reference[1]))
+            if field == "event_ref_list" and isinstance(value, dict):
+                role = type_text(value.get("role"))
+                if role:
+                    return f"{text} (role: {role})"
+            return text
         return scalar_text(field, value)
 
 
@@ -341,6 +346,26 @@ async def list_change_details(
     for item in old_items:
         if key(item) not in new_keys:
             details.append(Detail(label, "remove", await labeler.value(field, item)))
+    if field == "event_ref_list":
+        old_by_key = {key(item): item for item in old_items}
+        for item in new_items:
+            item_key = key(item)
+            previous = old_by_key.get(item_key)
+            if previous is None:
+                continue
+            old_role = (
+                type_text(previous.get("role")) if isinstance(previous, dict) else ""
+            )
+            new_role = type_text(item.get("role")) if isinstance(item, dict) else ""
+            if old_role != new_role:
+                details.append(
+                    Detail(
+                        label,
+                        "change",
+                        before=await labeler.value(field, previous),
+                        after=await labeler.value(field, item),
+                    )
+                )
     return details or [Detail(label, "info", "reordered")]
 
 
