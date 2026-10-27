@@ -90,7 +90,7 @@ async def test_a_new_child_reads_as_names_not_handles():
             "1. Add event: Birth, 10 août 2010",
             "2. Add person: Ileana Viveret",
             "    - sex: female",
-            "    - events: Birth, 10 août 2010",
+            "    - events: Birth, 10 août 2010 (role: Primary)",
             "3. Add family: family of Jérôme Benoît Viveret",
             "    - father: Jérôme Benoît Viveret",
             "    - children: Ileana Viveret",
@@ -121,6 +121,55 @@ async def test_existing_objects_are_named_through_the_profile():
     )
     assert "Edit family: family of Jérôme Benoît Viveret (F0732)" in text
     assert "children: add Jérôme Benoît Viveret" in text
+
+
+async def test_an_added_event_reference_shows_its_role():
+    person = {**JEROME, "event_ref_list": []}
+    event = {
+        "handle": "e1",
+        "type": "Death",
+        "date": {"dateval": [3, 11, 1800, False]},
+    }
+    text = await text_of(
+        [
+            {
+                "op": "update",
+                "type": "people",
+                "handle": "jer",
+                "changes": {"event_ref_list": [{"ref": "e1", "role": "Informant"}]},
+            }
+        ],
+        {"jer": person, "e1": event},
+    )
+    assert "events: add Death, 1800-11-03 (role: Informant)" in text
+
+
+async def test_an_event_reference_role_change_is_not_summarized_as_reordering():
+    person = {
+        **JEROME,
+        "event_ref_list": [{"ref": "e1", "role": "Primary"}],
+    }
+    event = {
+        "handle": "e1",
+        "type": "Death",
+        "date": {"dateval": [3, 11, 1800, False]},
+    }
+    text = await text_of(
+        [
+            {
+                "op": "update",
+                "type": "people",
+                "handle": "jer",
+                "changes": {"event_ref_list": [{"ref": "e1", "role": "Informant"}]},
+            }
+        ],
+        {"jer": person, "e1": event},
+    )
+    assert (
+        "events: Death, 1800-11-03 (role: Primary) → "
+        "Death, 1800-11-03 (role: Informant)"
+    ) in text
+    assert "reordered" not in text
 
 
 async def test_scalar_changes_use_words():
