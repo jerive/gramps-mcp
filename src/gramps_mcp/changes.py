@@ -177,8 +177,9 @@ class UpdateOperation(_Strict):
         description=(
             "Only the fields to change, as a nested object. They are merged into "
             "the current object, so everything not mentioned is kept. A list "
-            "replaces the whole list. `handle`, `_class` and read-only fields "
-            "cannot be changed."
+            "replaces the whole list. `null` removes the field, e.g. one the "
+            "backend returns but refuses on write. `handle`, `_class` and "
+            "read-only fields cannot be changed."
         ),
     )
 
@@ -300,11 +301,14 @@ class Planned:
 
 
 def merge_changes(current: JsonObject, changes: JsonObject) -> JsonObject:
-    """Deep-merges `changes` into a copy of `current`; lists and scalars replace."""
+    """Deep-merges `changes` into a copy of `current`; lists and scalars replace,
+    and `None` removes the key, as in a JSON merge patch (RFC 7386)."""
     merged = dict(current)
     for key, value in changes.items():
         existing = merged.get(key)
-        if isinstance(value, dict) and isinstance(existing, dict):
+        if value is None:
+            merged.pop(key, None)
+        elif isinstance(value, dict) and isinstance(existing, dict):
             merged[key] = merge_changes(existing, value)
         else:
             merged[key] = value

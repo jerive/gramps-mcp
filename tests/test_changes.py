@@ -135,6 +135,12 @@ def test_merge_changes_is_deep_and_keeps_the_rest():
     assert current["a"]["b"] == 1
 
 
+def test_merge_changes_null_removes_the_key():
+    current = {"type": "Unknown", "relationship": "Unknown", "a": {"b": 1, "c": 2}}
+    merged = merge_changes(current, {"relationship": None, "a": {"c": None}})
+    assert merged == {"type": "Unknown", "a": {"b": 1}}
+
+
 def test_read_routes_only():
     assert is_read_route("GET", "/api/people/")
     assert is_read_route("POST", "/api/people/query/")
