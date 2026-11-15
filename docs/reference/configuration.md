@@ -58,6 +58,17 @@ the model and the tree. It does not help a client that declares the support but
 answers without showing anything to the user: that answer is a refusal in both
 modes. See [Tools and resources](tools.md#the-write-tool).
 
+## Concurrent edits
+
+| Variable | Default | Description |
+|---|---|---|
+| `GRAMPS_MCP_IF_MATCH` | `off` | `on`: an update is sent with the ETag of the object as it was read (`If-Match`), so Gramps refuses it if someone changed the object in the meantime instead of overwriting their change; the set is then undone like any other failure. `off`: the update is written over whatever is there. |
+
+Only turn it on with a Gramps Web API that includes
+[gramps-web-api#1076](https://github.com/gramps-project/gramps-web-api/issues/1076):
+earlier versions serve an ETag that never matches, so every update is refused.
+Gramps does not check `If-Match` on a delete, so a delete is never protected.
+
 ## Read tools and cards
 
 | Variable | Default | Description |
