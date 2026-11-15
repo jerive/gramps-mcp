@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 from copy import deepcopy
@@ -25,6 +26,7 @@ from gramps_mcp.changes import (
     confirmation_mode,
     execute,
     format_confirmation,
+    if_match_enabled,
     merge_changes,
     plan,
     register_apply_changes,
@@ -45,10 +47,16 @@ def person(handle: str, first: str, surname: str, **extra: Any) -> dict[str, Any
     }
 
 
+def etag(obj: dict[str, Any]) -> str:
+    digest = hashlib.sha256(json.dumps(obj, sort_keys=True).encode()).hexdigest()
+    return f'"{digest}"'
+
+
 class FakeGramps:
     """Just enough of Gramps Web API: object endpoints that return their
     transaction, and `POST /api/transactions/?undo=true` with the real
-    semantics (all or nothing, refused if an object changed since)."""
+    semantics (all or nothing, refused if an object changed since). A GET
+    serves the object's ETag and a PUT checks `If-Match` against it."""
 
     def __init__(self, objects: dict[str, dict[str, Any]]):
         self.objects = objects
@@ -56,10 +64,12 @@ class FakeGramps:
         self.fail: Callable[[str, str], bool] = lambda method, path: False
         self.on_failure: Callable[[], None] = lambda: None
         self._next = 0
+        self.headers: list[tuple[str, str, dict[str, str]]] = []
 
     def handler(self, request: httpx2.Request) -> httpx2.Response:
         method, path = request.method, request.url.path
         self.calls.append((method, path))
+        self.headers.append((method, path, dict(request.headers)))
         if path == "/api/transactions/":
             return self._undo(json.loads(request.content))
         if self.fail(method, path):
@@ -70,9 +80,14 @@ class FakeGramps:
         cls = OBJECT_CLASSES[type_]  # type: ignore[index]
         if method == "GET":
             if handle in self.objects:
-                return httpx2.Response(200, json=self.objects[handle])
+                obj = self.objects[handle]
+                return httpx2.Response(200, json=obj, headers={"ETag": etag(obj)})
             return httpx2.Response(404, json={"error": {"message": "nope"}})
         if method == "PUT":
+            expected = request.headers.get("If-Match")
+            if expected is not None and expected != etag(self.objects[handle]):  # type: ignore[index]
+                message = "Resource does not match provided ETag."
+                return httpx2.Response(412, json={"error": {"message": message}})
             old, new = self.objects[handle], json.loads(request.content)  # type: ignore[index]
             self.objects[handle] = new  # type: ignore[index]
             return self._txn("update", cls, handle, old, new)  # type: ignore[arg-type]
@@ -389,6 +404,65 @@ async def test_first_failure_writes_nothing_and_does_not_try_to_undo():
     assert result.status == "not_applied"
     assert len(result.not_applied) == 1
     assert ("POST", "/api/transactions/") not in gramps.calls
+
+
+async def test_if_match_refuses_an_update_overwriting_a_change_made_since():
+    gramps = FakeGramps({"1": person("1", "A", "B"), "2": person("2", "C", "D")})
+    ops = OPERATIONS.validate_python([update("2", gender=1), update("1", gender=1)])
+    planned = await plan(gramps.client(), ops)
+    gramps.objects["1"] = {**gramps.objects["1"], "nickname": "Bob"}
+    result = await execute(gramps.client(), planned, if_match=True)
+    assert result.status == "rolled_back"
+    assert result.failed is not None
+    assert result.failed.error == (
+        "people 1 changed since it was read, so it was not overwritten."
+    )
+    assert gramps.objects["1"]["nickname"] == "Bob"
+    assert gramps.objects["2"]["gender"] == 0
+
+
+async def test_if_match_is_sent_on_updates_only():
+    gramps = FakeGramps({"1": person("1", "A", "B"), "2": person("2", "C", "D")})
+    ops = OPERATIONS.validate_python(
+        [
+            update("1", gender=1),
+            {"op": "delete", "type": "people", "handle": "2"},
+            {"op": "create", "type": "notes", "object": {}},
+        ]
+    )
+    planned = await plan(gramps.client(), ops)
+    expected = etag(gramps.objects["1"])
+    result = await execute(gramps.client(), planned, if_match=True)
+    assert result.status == "applied"
+    sent = {(m, p): h.get("if-match") for m, p, h in gramps.headers if m != "GET"}
+    assert sent == {
+        ("PUT", "/api/people/1"): expected,
+        ("DELETE", "/api/people/2"): None,
+        ("POST", "/api/notes/"): None,
+    }
+
+
+async def test_without_if_match_an_update_overwrites_a_change_made_since(monkeypatch):
+    monkeypatch.delenv("GRAMPS_MCP_IF_MATCH", raising=False)
+    gramps = FakeGramps({"1": person("1", "A", "B")})
+    planned = await plan(
+        gramps.client(), OPERATIONS.validate_python([update("1", gender=1)])
+    )
+    gramps.objects["1"] = {**gramps.objects["1"], "nickname": "Bob"}
+    result = await execute(gramps.client(), planned)
+    assert result.status == "applied"
+    assert "nickname" not in gramps.objects["1"]
+    assert all("if-match" not in h for _, _, h in gramps.headers)
+
+
+def test_if_match_mode(monkeypatch):
+    monkeypatch.delenv("GRAMPS_MCP_IF_MATCH", raising=False)
+    assert if_match_enabled() is False
+    monkeypatch.setenv("GRAMPS_MCP_IF_MATCH", " ON ")
+    assert if_match_enabled() is True
+    monkeypatch.setenv("GRAMPS_MCP_IF_MATCH", "yes")
+    with pytest.raises(ValueError, match="GRAMPS_MCP_IF_MATCH"):
+        if_match_enabled()
 
 
 def answer(value: bool, before: Callable[[], None] | None = None):

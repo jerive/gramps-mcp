@@ -68,6 +68,13 @@ exactly what the tool does.
 `execute` applies the changes in order. If one fails, the ones already written
 are undone and the status says so.
 
+`plan` keeps the ETag each updated object was read with (`Planned.etag`). With
+`execute(client, planned, if_match=True)`, each update is sent with it and
+Gramps refuses the write, as a failure like any other, if the object changed
+since it was planned. Left out, `if_match` follows `GRAMPS_MCP_IF_MATCH` (off by
+default); see [Configuration](configuration.md#concurrent-edits) for the Gramps
+Web API version it needs.
+
 ## What `ApplyChangesResult.status` guarantees
 
 | status | What is true |

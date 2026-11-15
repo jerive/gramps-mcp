@@ -46,6 +46,7 @@ MAX_OPERATIONS = 20
 MAX_VALUE_CHARS = 60
 MAX_CONFIRMATIONS = 3
 CONFIRMATION_MODES = ("required", "when-supported")
+IF_MATCH_MODES = ("off", "on")
 CONFIRM_KEY = "confirm"
 # From this protocol version on, a server cannot send a question in the middle
 # of a call: it returns an `InputRequiredResult` and the client calls again.
@@ -286,6 +287,9 @@ class Planned:
     body: JsonObject | None
     current: JsonObject | None = None
     view: ChangeView | None = None
+    # The ETag `current` was read with: an update is only written if the object
+    # still has it (see `if_match_enabled`).
+    etag: str | None = None
 
     @property
     def lines(self) -> list[str]:
@@ -335,7 +339,9 @@ def _error_message(response: httpx2.Response) -> str:
 
 async def _current(
     client: httpx2.AsyncClient, type_: ObjectType, handle: str
-) -> JsonObject:
+) -> tuple[JsonObject, str | None]:
+    """The object and its ETag. Only a GET without query parameters gets the
+    per-object ETag that a PUT checks `If-Match` against."""
     response = await client.get(f"/api/{type_}/{handle}")
     if response.status_code == 404:
         raise ChangeError(f"{type_} {handle} does not exist.")
@@ -344,7 +350,7 @@ async def _current(
             f"Could not read {type_} {handle}: {_error_message(response)}"
         )
     current: JsonObject = response.json()
-    return current
+    return current, response.headers.get("ETag")
 
 
 async def plan(
@@ -357,12 +363,14 @@ async def plan(
                 Planned("create", op.type, None, "POST", f"/api/{op.type}/", op.object)
             )
             continue
-        current = await _current(client, op.type, op.handle)
+        current, etag = await _current(client, op.type, op.handle)
         path = f"/api/{op.type}/{op.handle}"
         if isinstance(op, UpdateOperation):
             body = merge_changes(current, op.changes)
             planned.append(
-                Planned("update", op.type, op.handle, "PUT", path, body, current)
+                Planned(
+                    "update", op.type, op.handle, "PUT", path, body, current, etag=etag
+                )
             )
         else:
             planned.append(
@@ -412,14 +420,50 @@ async def rollback(
     return None if response.status_code < 400 else _error_message(response)
 
 
+def if_match_enabled() -> bool:
+    """Whether an update is sent with `If-Match`, so that it is refused if the
+    object changed since it was read instead of overwriting that change.
+
+    Off by default: Gramps Web API only serves an ETag that `If-Match` can match
+    since gramps-project/gramps-web-api#1076, and before that every update
+    sent with one is refused. Gramps does not check `If-Match` on a DELETE.
+    """
+    value = os.environ.get("GRAMPS_MCP_IF_MATCH", "off").strip().lower()
+    if value in IF_MATCH_MODES:
+        return value == "on"
+    raise ValueError(
+        f"GRAMPS_MCP_IF_MATCH must be one of {', '.join(IF_MATCH_MODES)}, got {value!r}"
+    )
+
+
+def _preconditions(item: Planned, if_match: bool) -> dict[str, str]:
+    if if_match and item.method == "PUT" and item.etag:
+        return {"If-Match": item.etag}
+    return {}
+
+
 async def execute(
-    client: httpx2.AsyncClient, planned: list[Planned]
+    client: httpx2.AsyncClient,
+    planned: list[Planned],
+    *,
+    if_match: bool | None = None,
 ) -> ApplyChangesResult:
-    """Applies the changes in order; if one fails, undoes the earlier ones."""
+    """Applies the changes in order; if one fails, undoes the earlier ones.
+
+    With `if_match` (by default, `GRAMPS_MCP_IF_MATCH`), an update fails if its
+    object changed since it was planned.
+    """
+    if if_match is None:
+        if_match = if_match_enabled()
     applied: list[ChangeSummary] = []
     transactions: list[list[JsonObject]] = []
     for index, item in enumerate(planned):
-        response = await client.request(item.method, item.path, json=item.body)
+        response = await client.request(
+            item.method,
+            item.path,
+            json=item.body,
+            headers=_preconditions(item, if_match),
+        )
         if response.status_code < 400:
             transaction: list[JsonObject] = response.json()
             transactions.append(transaction)
@@ -431,7 +475,13 @@ async def execute(
             applied.append(item.summary(handle))
             continue
 
-        failure = Failure(change=item.summary(), error=_error_message(response))
+        error = (
+            f"{item.type} {item.handle} changed since it was read, so it was not "
+            "overwritten."
+            if response.status_code == 412
+            else _error_message(response)
+        )
+        failure = Failure(change=item.summary(), error=error)
         untried = [p.summary() for p in planned[index + 1 :]]
         if not applied:
             return ApplyChangesResult(

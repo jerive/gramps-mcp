@@ -6,7 +6,8 @@ import os
 
 from fastmcp import FastMCP
 
-from .core import build_google_auth_provider
+from .changes import if_match_enabled
+from .core import build_google_auth_provider, logger
 from .goql import register_goql_resource
 from .spec import fetch_openapi_spec
 from .trees import mount_trees
@@ -20,6 +21,9 @@ def build_server() -> FastMCP:
             "names to mount, e.g. GRAMPS_MCP_TREES=Smith,Jones."
         )
     trees = [name.strip() for name in trees_env.split(",") if name.strip()]
+    # Read on every write; checked here so that a bad value stops the start.
+    if if_match_enabled():
+        logger.info("updates are sent with If-Match")
 
     auth_provider = build_google_auth_provider()
     mcp = FastMCP(auth=auth_provider)
