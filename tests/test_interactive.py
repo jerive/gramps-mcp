@@ -330,6 +330,58 @@ async def test_a_fixed_name_is_what_gets_written(monkeypatch):
     assert "Ileanna" in " ".join(c.description for c in outcome.applied)
 
 
+@pytest.mark.parametrize("edited", [False, True])
+async def test_long_multiline_note_can_be_applied(monkeypatch, edited):
+    gramps, server = make(monkeypatch)
+    original = "First line\n" + "x" * 600 + "\nLast line"
+    operations = [
+        {
+            "op": "create",
+            "type": "notes",
+            "object": {"handle": "note", "text": {"string": original, "tags": []}},
+        }
+    ]
+    card = (await show_card(server, operations)).structured_content
+    assert len(find(card, "type", "Textarea")) == 1
+    value = original + "\nAdded line" if edited else original
+    outcome = await confirm(server, card, {"0": True}, {"ed0": value})
+    assert outcome.status == "applied"
+    assert gramps.objects["note"]["text"]["string"] == value
+
+
+async def test_edited_note_over_the_limit_is_refused(monkeypatch):
+    gramps, server = make(monkeypatch)
+    operations = [
+        {
+            "op": "create",
+            "type": "notes",
+            "object": {"handle": "note", "text": {"string": "original", "tags": []}},
+        }
+    ]
+    card = (await show_card(server, operations)).structured_content
+    outcome = await confirm(server, card, {"0": True}, {"ed0": "x" * 100_001})
+    assert outcome.status == "invalid" and "limited to 100000" in outcome.message
+    assert writes(gramps) == []
+
+
+async def test_long_note_update_preserves_prefilled_text(monkeypatch):
+    gramps, server = make(monkeypatch)
+    gramps.objects["note"] = {"handle": "note", "text": {"string": "old", "tags": []}}
+    text = "New note\n" + "x" * 600 + "\n"
+    operations = [
+        {
+            "op": "update",
+            "type": "notes",
+            "handle": "note",
+            "changes": {"text": {"string": text}},
+        }
+    ]
+    card = (await show_card(server, operations)).structured_content
+    outcome = await confirm(server, card, {"0": True}, {"ed0": text})
+    assert outcome.status == "applied"
+    assert gramps.objects["note"]["text"]["string"] == text
+
+
 async def test_an_edit_of_an_unselected_change_is_ignored(monkeypatch):
     gramps, server = make(monkeypatch)
     card = (await show_card(server)).structured_content

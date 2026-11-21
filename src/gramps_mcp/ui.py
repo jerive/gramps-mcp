@@ -40,6 +40,7 @@ from prefab_ui.components import (
     Muted,
     Row,
     Text,
+    Textarea,
 )
 from prefab_ui.components.control_flow import If
 from prefab_ui.rx import STATE
@@ -64,6 +65,8 @@ from .changes import (
 )
 from .core import logger
 from .selection import (
+    MAX_EDIT_LENGTH,
+    MAX_NOTE_EDIT_LENGTH,
     EditError,
     EditField,
     Outline,
@@ -169,7 +172,10 @@ def _change(
                         for edit in fields:
                             with Row(gap=2, align="center", css_class="text-sm"):
                                 Muted(f"{edit.label}:")
-                                Input(name=edit.key, css_class="max-w-xs")
+                                if edit.path == "text.string":
+                                    Textarea(name=edit.key, rows=6, css_class="w-full")
+                                else:
+                                    Input(name=edit.key, css_class="max-w-xs")
 
 
 def counts(views: list[ChangeView]) -> dict[str, int]:
@@ -477,7 +483,14 @@ def register_ui(
             if edit.op not in chosen:
                 continue
             try:
-                value = check_edit(raw)
+                if raw == edit.value:
+                    continue
+                max_length = (
+                    MAX_NOTE_EDIT_LENGTH
+                    if edit.path == "text.string"
+                    else MAX_EDIT_LENGTH
+                )
+                value = check_edit(raw, max_length=max_length)
                 if not value:
                     raise EditError(f"The {edit.label} cannot be empty.")
                 if value == edit.value:

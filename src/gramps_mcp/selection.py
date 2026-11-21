@@ -18,6 +18,7 @@ from .summary import diff_paths
 JsonObject = dict[str, Any]
 
 MAX_EDIT_LENGTH = 500
+MAX_NOTE_EDIT_LENGTH = 100_000
 CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 # type -> (path into the object, label). Only free text with no structural
@@ -86,11 +87,11 @@ def set_path(obj: JsonObject, path: str, value: str) -> None:
         raise EditError(f"There is nothing to edit at {path!r}.")
 
 
-def check_edit(value: str) -> str:
+def check_edit(value: str, *, max_length: int = MAX_EDIT_LENGTH) -> str:
     if not isinstance(value, str):
         raise EditError("An edited value must be text.")
-    if len(value) > MAX_EDIT_LENGTH:
-        raise EditError(f"An edited value is limited to {MAX_EDIT_LENGTH} characters.")
+    if len(value) > max_length:
+        raise EditError(f"An edited value is limited to {max_length} characters.")
     if CONTROL_CHARS.search(value):
         raise EditError("An edited value cannot contain control characters.")
     return value.strip()
