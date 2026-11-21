@@ -232,8 +232,10 @@ Or interact with it directly in the embedded frame below:
 
 - **Fix a name** before applying: a first name, surname, event description,
   place name, note text, title. Only these text fields of a created object, or
-  of an edited one that the change touches, can be edited, up to 500
-  characters. Dates, handles and references cannot.
+  of an edited one that the change touches, can be edited. Note text supports
+  multiple lines and up to 100,000 characters; other fields are limited to 500
+  characters. Unchanged values are preserved even if they exceed these limits.
+  Dates, handles and references cannot be edited.
 - **Apply** calls `confirm_changes`, a tool the host keeps away from the model
   (`visibility: ["app"]`). The server rebuilds the changes, refuses them if an
   object changed since the card was shown, checks the selection is consistent
