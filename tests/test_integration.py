@@ -18,10 +18,20 @@ import os
 import pytest
 from fastmcp import Client
 
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("GRAMPS_BACKEND_URL"),
-    reason="requires a live Gramps Web API instance (set GRAMPS_BACKEND_URL)",
-)
+pytestmark = [
+    pytest.mark.skipif(
+        not os.environ.get("GRAMPS_BACKEND_URL"),
+        reason="requires a live Gramps Web API instance (set GRAMPS_BACKEND_URL)",
+    ),
+    # One event loop for the whole module. `gramps_mcp.server` builds its tree
+    # clients when it is first imported, which happens inside whichever test
+    # imports it first, so those clients -- their connection pools and the token
+    # refresh task -- belong to that test's loop. With a loop per test the pool
+    # outlives the loop it was opened on, and closing a connection on a dead loop
+    # raises "Event loop is closed". Reads happened to survive it by keeping
+    # their connections alive; the media upload is the first test to close one.
+    pytest.mark.asyncio(loop_scope="module"),
+]
 
 
 async def test_mounted_tree_exposes_the_read_tools():
