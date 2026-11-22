@@ -51,7 +51,7 @@ of 1 to 20 operations, in order:
 
 | `op` | Fields | Meaning |
 |---|---|---|
-| `create` | `type`, `object` | Add the full object. `_class` may be left out; if given it must match `type`. Not for `media`. |
+| `create` | `type`, `object` | Add the full object. `_class` may be left out; if given it must match `type`. Not for `media`: see [Adding a media file](#adding-a-media-file). |
 | `update` | `type`, `handle`, `changes` | Merge `changes`, a nested object holding only the changed fields, into the current object. A list replaces the whole list. |
 | `delete` | `type`, `handle` | Delete the object. |
 
@@ -172,6 +172,24 @@ The list lives in `EXCLUDED_ROUTE_PREFIXES` in `src/gramps_mcp/trees.py`; the re
   for strict validation to help.
 - **Authentication** to Gramps Web is automatic. The server logs in once per
   tree and refreshes the token in the background.
+
+## Adding a media file
+
+Off unless `GRAMPS_MCP_MEDIA_UPLOAD=on`. A media object cannot be created by
+`apply_changes`, because Gramps takes the file itself as the request body. These
+tools are how one is added; the how-to guide is
+[Add a media file](../how-to/add-media.md).
+
+| Tool | Visible to | What it does |
+|---|---|---|
+| `file_manager` | the model | Shows the drop zone. |
+| `store_files` | the app only | Receives what was dropped. The host keeps it away from the model, as it does `confirm_changes`. |
+| `list_files` | the model | Names the files waiting to be filed. |
+| `read_file` | the model | Metadata and a truncated preview — never the file. |
+| `file_media` | the model | Puts one waiting file into a tree and returns the media's `handle`, `gramps_id`, `checksum`, `mime` and `size`. |
+
+`file_media` writes the file and nothing else. Give the media a description or a
+date, or attach it to an event, with `apply_changes` on the handle it returns.
 
 ## Resources
 

@@ -62,6 +62,7 @@ nav:
       - Deploy with Docker Compose: how-to/docker-compose.md
       - Run without Docker: how-to/run-without-docker.md
       - Connect an MCP client: how-to/connect-client.md
+      - Add a media file: how-to/add-media.md
   - Reference:
       - Configuration: reference/configuration.md
       - Tools and resources: reference/tools.md

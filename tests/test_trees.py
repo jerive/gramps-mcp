@@ -98,3 +98,26 @@ async def test_the_tools_are_shared_and_each_call_names_its_tree(monkeypatch):
     assert json.dumps(listed.structured_content).count('"id"') == 2  # a and b, not c
     assert [s[0] for s in seen] == ["b"]
     assert refused.is_error and "No tree 'c' is available" in refused.content[0].text
+
+
+@pytest.mark.parametrize(
+    ("setting", "expected"), [(None, False), ("off", False), ("on", True)]
+)
+async def test_the_media_drop_zone_appears_only_when_asked_for(
+    monkeypatch, setting, expected
+):
+    monkeypatch.setenv("GRAMPS_MCP_UI", "off")
+    monkeypatch.setattr(trees_module, "get_access_token", lambda: None)
+    if setting is None:
+        monkeypatch.delenv("GRAMPS_MCP_MEDIA_UPLOAD", raising=False)
+    else:
+        monkeypatch.setenv("GRAMPS_MCP_MEDIA_UPLOAD", setting)
+    server = FastMCP()
+    add_tree_tools(Trees([tree("a", [], member=True)]), make_spec(), server)
+
+    async with Client(server) as client:
+        names = {t.name for t in await client.list_tools()}
+
+    assert ("file_media" in names) is expected
+    assert ("store_files" in names) is expected
+    assert "apply_changes" in names
