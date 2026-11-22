@@ -78,3 +78,37 @@ User management, token endpoints, saved filters and server configuration are
 never exposed as tools. Even an Owner service account cannot be used by an
 agent to create users or change settings through MCP. See
 [Tools and resources](../reference/tools.md#excluded-routes).
+
+## The one write that is not `apply_changes`
+
+With `GRAMPS_MCP_MEDIA_UPLOAD=on` (off by default), a file the user drops into
+the upload card becomes a media object through `file_media`. It is the only
+write in the server that does not go through `apply_changes`, and it is worth
+being clear about why that is safe and where it is not.
+
+**The model never chooses the bytes.** The drop zone hands the file to
+`store_files`, a tool declared for the app and not for the model, the same way
+`confirm_changes` is. What reaches a tree is what a person dropped. The model
+can call `read_file`, but that returns a truncated preview, so the bytes do not
+come back out into a conversation either.
+
+**A new media object cannot break the graph.** It references nothing and nothing
+references it: it is a leaf. The reason every generated write route is excluded
+— that a dangling reference leaves a tree Gramps itself struggles to repair —
+does not apply to this one object, and only to it. Attaching the media to an
+event is a reference, so that stays in `apply_changes`.
+
+**But the write is not undoable, and this is the real cost.** Replaying the
+transaction with `undo=true` removes the object and leaves the file in storage,
+where it keeps counting against the tree's media quota. Gramps never deletes a
+media blob. Keeping byte-writing outside `apply_changes` is what lets its
+rollback mean what it says.
+
+**The type is read from the file, not from its name.** Gramps' own guard accepts
+almost anything, and the type it is given becomes the extension of the stored
+path, so a wrong one would be permanent. The server accepts JPEG, PNG, TIFF,
+WebP and PDF, recognised by their first bytes; HTML and SVG are refused, since
+`/api/media/{handle}/file` would serve them back as active content.
+
+**Uploads are attributed to the service account**, like every other write.
+Gramps' history will not show which person added a file.

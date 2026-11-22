@@ -106,6 +106,8 @@ jobs:
           GRAMPS_MCP_TREES: ci-tree
           GRAMPS_MCP_TREE_CI_TREE_USERNAME: editor
           GRAMPS_MCP_TREE_CI_TREE_PASSWORD: editorpass123
+          # Exercises the media drop zone against a real Gramps.
+          GRAMPS_MCP_MEDIA_UPLOAD: "on"
         run: uv run pytest tests/test_integration.py -v
 
       - name: Gramps Web API log

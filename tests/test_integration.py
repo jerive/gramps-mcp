@@ -89,3 +89,49 @@ async def test_writes_only_go_through_apply_changes():
         and not n.endswith("_query")
     ]
     assert not writes, f"generated write tools still exposed: {sorted(writes)}"
+
+
+# A real 1x1 PNG, 70 bytes: enough for Gramps to checksum, store and serve.
+PIXEL = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGA"
+    "hKmMIQAAAABJRU5ErkJggg=="
+)
+
+
+async def test_a_dropped_file_becomes_a_real_media_object():
+    """The one write that bypasses apply_changes, against a real Gramps.
+
+    Set GRAMPS_MCP_MEDIA_UPLOAD=on for this one; see ci.yml's integration job.
+    """
+    import base64
+    import hashlib
+
+    from gramps_mcp.server import mcp
+
+    async with Client(mcp) as client:
+        if "file_media" not in {t.name for t in await client.list_tools()}:
+            pytest.skip("media upload is off (GRAMPS_MCP_MEDIA_UPLOAD)")
+        await client.call_tool(
+            "store_files",
+            {
+                "files": [
+                    {
+                        "name": "acte.png",
+                        "size": len(base64.b64decode(PIXEL)),
+                        "type": "image/png",
+                        "data": PIXEL,
+                    }
+                ]
+            },
+        )
+        filed = await client.call_tool("file_media", {"name": "acte.png"})
+        found = await client.call_tool(
+            "get_object", {"object_type": "media", "handle": filed.data["handle"]}
+        )
+
+    media = json.loads(found.content[0].text)
+    # Gramps computes the checksum itself, so matching it proves the bytes
+    # arrived whole, through the drop zone and the tool and the wire.
+    assert media["checksum"] == hashlib.md5(base64.b64decode(PIXEL)).hexdigest()
+    assert media["mime"] == "image/png"
+    assert media["path"].endswith(".png")

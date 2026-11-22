@@ -27,6 +27,7 @@ from .core import (
     login_gramps_user,
     start_token_refresh_loop,
 )
+from .media import media_upload_enabled, register_media_upload
 from .spec import TREE_PARAM, object_schemas, prepare_spec
 from .ui import register_ui, ui_enabled
 
@@ -305,4 +306,6 @@ def add_tree_tools(trees: Trees, openapi_spec: dict[str, Any], mcp: FastMCP) -> 
         register_ui(child, trees)
     else:
         register_apply_changes(child, trees)
+    if media_upload_enabled():
+        register_media_upload(child, trees)
     mcp.mount(child)
